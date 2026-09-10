@@ -190,6 +190,7 @@ const $ = (s) => document.querySelector(s);
 const sonuc = $('#sonuc');
 let sayac = { t: 0, y: 0, m: 0 };
 let sonListe = [];
+let toplamKayit = null;
 
 try {
   $('#lok').value = localStorage.getItem('dmc_lok') || 'Çerkezköy';
@@ -294,7 +295,15 @@ async function listele() {
       { headers: BASLIK });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     sonListe = await r.json();
-    durum(true, 'bağlı · havuzda ' + sonListe.length + ' kayıt');
+    // Toplam sayi: govde cekilmeden yalniz basliktan okunur (ucuz)
+    try {
+      const s = await fetch(SB_URL + '/rest/v1/' + TABLO + '?select=id&limit=1',
+        { headers: Object.assign({ Prefer: 'count=exact' }, BASLIK) });
+      const cr = s.headers.get('content-range');
+      if (cr && cr.indexOf('/') > 0) toplamKayit = cr.split('/')[1];
+    } catch (e) {}
+    durum(true, 'bağlı · son ' + sonListe.length + ' kayıt gösteriliyor'
+      + (toplamKayit !== null ? ' · havuzda toplam ' + toplamKayit : ''));
     $('#liste').innerHTML = sonListe.length ? sonListe.map(function (s) {
       return '<tr class="' + (s.mukerrer ? 'mk' : '') + '">'
         + '<td class="sec"><input type="checkbox" class="sc" data-id="' + s.id + '"></td>'
@@ -327,10 +336,27 @@ $('#hepsiSec').onchange = function () {
   secGuncelle();
 };
 
-/* ── Excel: CSV (BOM + noktali virgul) — Turkce Excel dogrudan acar ── */
-function csvUret() {
+/* ── Excel: CSV (BOM + noktali virgul) — Turkce Excel dogrudan acar ──
+   Ekrandaki liste son 300 kayitla sinirli; disa aktarim TUM havuzu ceker,
+   yoksa kayit buyudukce eski kayitlar aktarilmadan kalirdi. */
+async function tumKayitlar() {
+  const hepsi = [];
+  const adim = 1000;
+  for (let bas = 0; bas < 100000; bas += adim) {
+    const r = await fetch(SB_URL + '/rest/v1/' + TABLO
+      + '?select=kod,lokasyon,okuyan,mukerrer,zaman&order=zaman.desc'
+      + '&offset=' + bas + '&limit=' + adim, { headers: BASLIK });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const p = await r.json();
+    hepsi.push.apply(hepsi, p);
+    if (p.length < adim) break;
+  }
+  return hepsi;
+}
+
+function csvUret(kayitlar) {
   const bas = ['Kod', 'Durum', 'Lokasyon', 'Okuyan', 'Tarih', 'Saat'];
-  const satir = sonListe.map(function (s) {
+  const satir = kayitlar.map(function (s) {
     const d = new Date(s.zaman);
     return [s.kod, s.mukerrer ? 'MÜKERRER' : 'yeni', s.lokasyon || '', s.okuyan || '',
             d.toLocaleDateString('tr-TR'), d.toLocaleTimeString('tr-TR')]
@@ -338,23 +364,31 @@ function csvUret() {
   });
   return '﻿' + bas.join(';') + '\n' + satir.join('\n');
 }
-function dosyaAdi() {
+function dosyaAdi(n) {
   const d = new Date();
-  return 'DMC_' + d.toISOString().slice(0, 10) + '_' + sonListe.length + 'kayit.csv';
+  return 'DMC_' + d.toISOString().slice(0, 10) + '_' + n + 'kayit.csv';
 }
-$('#excel').onclick = function () {
-  if (!sonListe.length) { $('#listeNot').textContent = 'Aktarılacak kayıt yok.'; return; }
-  const b = new Blob([csvUret()], { type: 'text/csv;charset=utf-8' });
+$('#excel').onclick = async function () {
+  $('#listeNot').textContent = 'Tüm kayıtlar toplanıyor…';
+  let k;
+  try { k = await tumKayitlar(); }
+  catch (e) { $('#listeNot').textContent = 'Aktarılamadı: ' + String(e.message || e); return; }
+  if (!k.length) { $('#listeNot').textContent = 'Aktarılacak kayıt yok.'; return; }
+  const b = new Blob([csvUret(k)], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(b); a.download = dosyaAdi();
+  a.href = URL.createObjectURL(b); a.download = dosyaAdi(k.length);
   document.body.appendChild(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
-  $('#listeNot').textContent = sonListe.length + ' kayıt indirildi: ' + a.download;
+  $('#listeNot').textContent = k.length + ' kayıt indirildi: ' + a.download;
 };
 /* Paylas: telefondan PC'ye gecirmenin en kisa yolu (WhatsApp/mail) */
 $('#paylas').onclick = async function () {
-  if (!sonListe.length) { $('#listeNot').textContent = 'Paylaşılacak kayıt yok.'; return; }
-  const dosya = new File([csvUret()], dosyaAdi(), { type: 'text/csv' });
+  $('#listeNot').textContent = 'Tüm kayıtlar toplanıyor…';
+  let k;
+  try { k = await tumKayitlar(); }
+  catch (e) { $('#listeNot').textContent = 'Alınamadı: ' + String(e.message || e); return; }
+  if (!k.length) { $('#listeNot').textContent = 'Paylaşılacak kayıt yok.'; return; }
+  const dosya = new File([csvUret(k)], dosyaAdi(k.length), { type: 'text/csv' });
   try {
     if (navigator.canShare && navigator.canShare({ files: [dosya] })) {
       await navigator.share({ files: [dosya], title: 'DMC kayıtları' });
