@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f2f6e">
+<title>DMC Mükerrer Kod Takibi — Sanifoam</title>
+<style>
+  :root{
+    --ana:#0f2f6e; --ana2:#1a4a9e; --zemin:#eef1f6; --kart:#fff;
+    --kenar:#d8dee8; --metin:#1f2937; --soluk:#6b7280;
+    --ok:#177245; --okZemin:#e8f6ee; --hata:#b42318; --hataZemin:#fdeceb;
+    --uyari:#8a6320; --uyariZemin:#fff6e5;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+       background:var(--zemin);color:var(--metin);-webkit-text-size-adjust:100%}
+  header{background:linear-gradient(135deg,var(--ana),var(--ana2));color:#fff;
+         padding:12px 14px;position:sticky;top:0;z-index:10}
+  header h1{margin:0;font-size:16px;font-weight:700;letter-spacing:.2px}
+  header .alt{font-size:11.5px;opacity:.85;margin-top:2px}
+  .sar{max-width:640px;margin:0 auto;padding:12px 12px 90px}
+  .kart{background:var(--kart);border:1px solid var(--kenar);border-radius:12px;
+        padding:12px;margin-bottom:12px}
+  label{display:block;font-size:11.5px;font-weight:700;letter-spacing:.05em;
+        text-transform:uppercase;color:var(--soluk);margin-bottom:5px}
+  select,input[type=text]{width:100%;height:42px;padding:0 10px;font-size:16px;
+        border:1px solid var(--kenar);border-radius:9px;background:#fff;color:var(--metin)}
+  .ikili{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  button{font:inherit;cursor:pointer;border-radius:10px;border:1px solid transparent}
+  .bas{width:100%;height:52px;font-size:17px;font-weight:700;color:#fff;
+       background:var(--ana);border-color:var(--ana)}
+  .bas:disabled{opacity:.5}
+  .ikinci{height:42px;padding:0 14px;background:#fff;border-color:var(--kenar);color:var(--metin)}
+  .tehlike{background:#fff;border-color:#f0c9c5;color:var(--hata)}
+  #video{width:100%;border-radius:10px;background:#000;display:none;aspect-ratio:4/3;object-fit:cover}
+  #sonuc{display:none;border-radius:12px;padding:14px;margin-bottom:12px;
+         border:1px solid;text-align:center}
+  #sonuc .kod{font:700 22px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;
+              word-break:break-all;margin:6px 0}
+  #sonuc .dur{font-size:15px;font-weight:700}
+  #sonuc .ek{font-size:12.5px;opacity:.85;margin-top:4px}
+  .ok{background:var(--okZemin);border-color:#b7e0c8;color:var(--ok)}
+  .hata{background:var(--hataZemin);border-color:#f4c7c3;color:var(--hata)}
+  .bekle{background:var(--uyariZemin);border-color:#f0dcae;color:var(--uyari)}
+  .sayac{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center}
+  .sayac div{background:#f7f9fc;border:1px solid var(--kenar);border-radius:10px;padding:8px 4px}
+  .sayac b{display:block;font-size:20px;line-height:1.1}
+  .sayac span{font-size:10.5px;color:var(--soluk);text-transform:uppercase;letter-spacing:.04em}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;
+     color:var(--soluk);padding:4px 6px;border-bottom:1px solid var(--kenar)}
+  td{padding:6px;border-bottom:1px solid #eef1f5;vertical-align:top}
+  td.k{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;word-break:break-all}
+  tr.mk td{background:var(--hataZemin)}
+  .rozet{display:inline-block;font-size:10.5px;font-weight:700;padding:1px 6px;
+         border-radius:999px;background:var(--okZemin);color:var(--ok)}
+  .rozet.m{background:#f9d9d6;color:var(--hata)}
+  .dip{font-size:11.5px;color:var(--soluk);margin-top:6px}
+  .durum{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--soluk)}
+  .nokta{width:8px;height:8px;border-radius:50%;background:#9ca3af}
+  .nokta.acik{background:#16a34a}.nokta.kapali{background:#dc2626}
+  @media(prefers-color-scheme:dark){
+    :root{--zemin:#161a20;--kart:#20252c;--kenar:#333a44;--metin:#e6e9ee;--soluk:#9aa3af;
+          --okZemin:#16301f;--hataZemin:#331a19;--uyariZemin:#302713}
+    select,input[type=text],.ikinci{background:#20252c;color:var(--metin)}
+    .sayac div{background:#1a1f26}
+    td{border-bottom-color:#2a3038}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>DMC Mükerrer Kod Takibi</h1>
+  <div class="alt">Sanifoam · ortak havuz — Çerkezköy ve Almanya aynı listeyi görür</div>
+</header>
+
+<div class="sar">
+
+  <div id="sonuc"><div class="dur"></div><div class="kod"></div><div class="ek"></div></div>
+
+  <div class="kart">
+    <div class="ikili">
+      <div>
+        <label for="lok">Lokasyon</label>
+        <select id="lok">
+          <option>Çerkezköy</option>
+          <option>Almanya</option>
+          <option>Ankara</option>
+          <option>Diğer</option>
+        </select>
+      </div>
+      <div>
+        <label for="kisi">Okuyan</label>
+        <input type="text" id="kisi" placeholder="ad soyad" autocomplete="name">
+      </div>
+    </div>
+  </div>
+
+  <div class="kart">
+    <label for="elle">Kod</label>
+    <input type="text" id="elle" placeholder="Kodu okut ya da elle yaz" autocomplete="off"
+           autocapitalize="characters" enterkeyhint="done">
+    <div style="height:10px"></div>
+    <button class="bas" id="kaydet">Kaydet ve kontrol et</button>
+    <div style="height:8px"></div>
+    <button class="ikinci" id="kamera" style="width:100%">📷 Kamerayı başlat</button>
+    <video id="video" playsinline muted></video>
+    <div class="dip" id="kameraNot"></div>
+  </div>
+
+  <div class="kart">
+    <div class="sayac">
+      <div><b id="sT">0</b><span>toplam</span></div>
+      <div><b id="sY">0</b><span>yeni</span></div>
+      <div><b id="sM">0</b><span>mükerrer</span></div>
+    </div>
+    <div style="height:10px"></div>
+    <div class="durum"><span class="nokta" id="nokta"></span><span id="durumYazi">bağlanıyor…</span></div>
+  </div>
+
+  <div class="kart">
+    <label>Son okumalar</label>
+    <table><thead><tr><th>Kod</th><th>Yer</th><th>Saat</th></tr></thead>
+      <tbody id="liste"><tr><td colspan="3" style="color:var(--soluk)">—</td></tr></tbody></table>
+    <div style="height:10px"></div>
+    <button class="ikinci" id="yenile">↻ Listeyi yenile</button>
+  </div>
+
+</div>
+
+<script>
+/* ── Ortak havuz: Supabase REST. anon anahtar tarayiciya gomulmek uzere
+      tasarlanmistir; gizli olan service_role'dur ve buraya KONMAZ. ── */
+const SB_URL = 'https://donjfzetqpzrgforhenu.supabase.co';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRvbmpmemV0cXB6cmdmb3JoZW51Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM5MzMyNTMsImV4cCI6MjA5OTUwOTI1M30.qKwUeImRijR9V7TUoXYAfGxJpMF2hocZzXFK8ph189I';
+const TABLO = 'dmc_okuma';
+const BASLIK = { apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
+                 'Content-Type': 'application/json' };
+
+const $ = (s) => document.querySelector(s);
+const sonuc = $('#sonuc');
+let sayac = { t: 0, y: 0, m: 0 };
+
+/* Ayarlar telefonda kalsin: her okumada yeniden yazilmasin */
+try {
+  $('#lok').value = localStorage.getItem('dmc_lok') || 'Çerkezköy';
+  $('#kisi').value = localStorage.getItem('dmc_kisi') || '';
+} catch (e) {}
+$('#lok').onchange = () => { try { localStorage.setItem('dmc_lok', $('#lok').value); } catch (e) {} };
+$('#kisi').onchange = () => { try { localStorage.setItem('dmc_kisi', $('#kisi').value.trim()); } catch (e) {} };
+
+function durum(acik, yazi) {
+  $('#nokta').className = 'nokta ' + (acik ? 'acik' : 'kapali');
+  $('#durumYazi').textContent = yazi;
+}
+
+/* Sesli uyari: mukerrerde uzun ve alcak, yenide kisa ve yuksek.
+   Operator ekrana bakmadan da ayirt edebilsin. */
+let sesBaglam = null;
+function bip(mukerrer) {
+  try {
+    sesBaglam = sesBaglam || new (window.AudioContext || window.webkitAudioContext)();
+    const o = sesBaglam.createOscillator(), g = sesBaglam.createGain();
+    o.connect(g); g.connect(sesBaglam.destination);
+    o.frequency.value = mukerrer ? 220 : 880;
+    g.gain.setValueAtTime(0.001, sesBaglam.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.3, sesBaglam.currentTime + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.001, sesBaglam.currentTime + (mukerrer ? 0.7 : 0.15));
+    o.start(); o.stop(sesBaglam.currentTime + (mukerrer ? 0.75 : 0.2));
+  } catch (e) {}
+  try { navigator.vibrate && navigator.vibrate(mukerrer ? [180, 90, 180] : 60); } catch (e) {}
+}
+
+function goster(tur, dur, kod, ek) {
+  sonuc.className = tur;
+  sonuc.style.display = 'block';
+  sonuc.querySelector('.dur').textContent = dur;
+  sonuc.querySelector('.kod').textContent = kod || '';
+  sonuc.querySelector('.ek').textContent = ek || '';
+}
+
+function saat(iso) {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
+      + ' · ' + d.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit' });
+  } catch (e) { return ''; }
+}
+
+/* ── Kayit: once AYNI kod var mi diye sorulur, sonra yazilir ──
+   Kod sutunu bilerek unique DEGIL: mukerrer deneme de kayda girsin ki
+   kimin nerede ne zaman ikinci kez okuttugu iz biraksin. */
+async function kaydet(kod) {
+  kod = String(kod || '').trim().toUpperCase();
+  if (!kod) return;
+  const lok = $('#lok').value, kisi = $('#kisi').value.trim();
+  goster('bekle', 'Kontrol ediliyor…', kod, '');
+  let onceki = [];
+  try {
+    const r = await fetch(SB_URL + '/rest/v1/' + TABLO
+      + '?select=lokasyon,okuyan,zaman&kod=eq.' + encodeURIComponent(kod)
+      + '&mukerrer=is.false&order=zaman.asc&limit=1', { headers: BASLIK });
+    if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + (await r.text()).slice(0, 120));
+    onceki = await r.json();
+  } catch (e) {
+    durum(false, 'bağlantı yok — kayıt yapılamadı');
+    goster('hata', 'BAĞLANTI YOK', kod, String(e.message || e).slice(0, 90));
+    bip(true);
+    return;
+  }
+  const mukerrer = onceki.length > 0;
+  try {
+    const r2 = await fetch(SB_URL + '/rest/v1/' + TABLO, {
+      method: 'POST', headers: BASLIK,
+      body: JSON.stringify({ kod: kod, lokasyon: lok, okuyan: kisi || null,
+                             mukerrer: mukerrer })
+    });
+    if (!r2.ok) throw new Error('HTTP ' + r2.status + ' ' + (await r2.text()).slice(0, 120));
+  } catch (e) {
+    durum(false, 'yazılamadı');
+    goster('hata', 'KAYDEDİLEMEDİ', kod, String(e.message || e).slice(0, 90));
+    bip(true);
+    return;
+  }
+  durum(true, 'bağlı');
+  sayac.t++; mukerrer ? sayac.m++ : sayac.y++;
+  $('#sT').textContent = sayac.t; $('#sY').textContent = sayac.y; $('#sM').textContent = sayac.m;
+  if (mukerrer) {
+    const o = onceki[0];
+    goster('hata', '⛔ MÜKERRER', kod,
+      'İlk okuma: ' + (o.lokasyon || '—') + (o.okuyan ? ' · ' + o.okuyan : '')
+      + ' · ' + saat(o.zaman));
+  } else {
+    goster('ok', '✓ YENİ KOD', kod, lok + (kisi ? ' · ' + kisi : ''));
+  }
+  bip(mukerrer);
+  $('#elle').value = '';
+  listele();
+}
+
+async function listele() {
+  try {
+    const r = await fetch(SB_URL + '/rest/v1/' + TABLO
+      + '?select=kod,lokasyon,okuyan,mukerrer,zaman&order=zaman.desc&limit=25',
+      { headers: BASLIK });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const v = await r.json();
+    durum(true, 'bağlı · havuzda son ' + v.length + ' kayıt');
+    $('#liste').innerHTML = v.length ? v.map(function (s) {
+      return '<tr class="' + (s.mukerrer ? 'mk' : '') + '">'
+        + '<td class="k">' + s.kod
+        + (s.mukerrer ? ' <span class="rozet m">MÜK</span>' : ' <span class="rozet">yeni</span>')
+        + '</td><td>' + (s.lokasyon || '—')
+        + (s.okuyan ? '<br><span style="color:var(--soluk);font-size:11px">' + s.okuyan + '</span>' : '')
+        + '</td><td style="white-space:nowrap">' + saat(s.zaman) + '</td></tr>';
+    }).join('') : '<tr><td colspan="3" style="color:var(--soluk)">Henüz kayıt yok</td></tr>';
+  } catch (e) {
+    durum(false, 'liste alınamadı: ' + String(e.message || e).slice(0, 60));
+  }
+}
+
+$('#kaydet').onclick = () => kaydet($('#elle').value);
+$('#elle').addEventListener('keydown', (e) => { if (e.key === 'Enter') kaydet($('#elle').value); });
+$('#yenile').onclick = listele;
+
+/* ── Kamera: BarcodeDetector (Android Chrome). iOS Safari Data Matrix
+      cozemiyor; o durumda dugme gizlenir, elle giris devrede kalir. ── */
+let akis = null, tarayici = null, sonKod = '', sonAn = 0;
+$('#kamera').onclick = async function () {
+  if (akis) {
+    akis.getTracks().forEach((t) => t.stop());
+    akis = null; $('#video').style.display = 'none';
+    this.textContent = '📷 Kamerayı başlat';
+    return;
+  }
+  if (!('BarcodeDetector' in window)) {
+    $('#kameraNot').textContent =
+      'Bu tarayıcı kamerayla kod çözemiyor (iPhone/Safari). Kodu elle yazın ya da el terminali kullanın.';
+    return;
+  }
+  try {
+    const turler = await BarcodeDetector.getSupportedFormats();
+    const istenen = ['data_matrix', 'qr_code', 'code_128', 'code_39'].filter((t) => turler.includes(t));
+    tarayici = new BarcodeDetector({ formats: istenen.length ? istenen : turler });
+    akis = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1280 } } });
+    const v = $('#video');
+    v.srcObject = akis; v.style.display = 'block'; await v.play();
+    this.textContent = '⏹ Kamerayı durdur';
+    $('#kameraNot').textContent = 'Etiketi çerçeveye tutun · çözülen: ' + istenen.join(', ');
+    tara();
+  } catch (e) {
+    $('#kameraNot').textContent = 'Kamera açılamadı: ' + String(e.message || e).slice(0, 80);
+  }
+};
+
+async function tara() {
+  if (!akis || !tarayici) return;
+  try {
+    const bulunan = await tarayici.detect($('#video'));
+    if (bulunan.length) {
+      const kod = String(bulunan[0].rawValue || '').trim();
+      // Ayni kod kamera onunde dururken saniyede bir kez sayilir
+      const simdi = Date.now();
+      if (kod && (kod !== sonKod || simdi - sonAn > 2500)) {
+        sonKod = kod; sonAn = simdi;
+        kaydet(kod);
+      }
+    }
+  } catch (e) {}
+  if (akis) setTimeout(tara, 300);
+}
+
+listele();
+setInterval(listele, 60000);   // havuz baska telefondan da doluyor
+</script>
+</body>
+</html>
