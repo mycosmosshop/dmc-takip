@@ -281,10 +281,30 @@ function tonCal(hz, sure, gecikme, ses) {
   } catch (e) {}
 }
 
+/* lang='tr-TR' TEK BASINA YETMIYOR: cihazin varsayilan sesi Ingilizce ise
+   Turkce metni Ingilizce telaffuzla okuyor. Turkce sesi acikca seciyoruz.
+   getVoices() ilk cagride BOS donebilir — liste gelince tekrar araniyor. */
+let trSes = null;
+function trSesAra() {
+  try {
+    const l = speechSynthesis.getVoices() || [];
+    trSes = l.filter((v) => /^tr(-|_|$)/i.test(v.lang || ''))[0] || null;
+  } catch (e) {}
+}
+try {
+  trSesAra();
+  speechSynthesis.addEventListener('voiceschanged', trSesAra);
+} catch (e) {}
+
 function anons(metin) {
   try {
     if (!sesAcik || !('speechSynthesis' in window)) return;
+    if (!trSes) trSesAra();
+    // Liste dolu ama Turkce ses yoksa: Ingilizce telaffuz etmesin. Bip
+    // zaten caldigi icin uyari kaybolmuyor.
+    if (!trSes && (speechSynthesis.getVoices() || []).length) return;
     const u = new SpeechSynthesisUtterance(metin);
+    if (trSes) u.voice = trSes;
     u.lang = 'tr-TR'; u.rate = 1.05; u.pitch = 1; u.volume = 1;
     speechSynthesis.cancel();
     speechSynthesis.speak(u);
@@ -315,6 +335,15 @@ function wavCal(hz, sure, ses) {
     a.volume = 1;
     a.play().catch(() => {});
   } catch (e) {}
+}
+
+/* Mukerrer sesinden AYRI olmali: inen ikili ton = "olmadi". */
+function bipOkunamadi() {
+  if (!sesAcik) return;
+  tonCal(520, 0.16, 0.00, 0.6);
+  tonCal(390, 0.24, 0.20, 0.6);
+  wavCal(430, 0.42, 0.6);
+  setTimeout(() => anons('Okunamadı'), 620);
 }
 
 function bip(mukerrer) {
@@ -658,6 +687,41 @@ $('#yenile').onclick = listele;
 /* ── Kamera: BarcodeDetector (Android Chrome). iOS Safari Data Matrix
       cozemiyor; o durumda elle giris devrede kalir. ── */
 let akis = null, tarayici = null, sonKod = '', ayniUyari = 0;
+
+/* Etiket tutuluyor ama COZULEMIYOR mu?  BarcodeDetector cozemedigini bos
+   dizi olarak donduruyor; "etiket yok" ile "etiket okunamiyor" ayni
+   gorunuyor. Ayrimi kare KONTRASTINDAN yapiyoruz: duz/bos sahne (masa,
+   duvar) dusuk kontrastlidir, kameraya bir sey tutulunca yukselir.
+   Esik BILEREK cok dusuk — silik etiket bile duz zeminden yuksektir ve
+   asil yakalanmasi gereken durum odur. Sahada yanlis alarm gelirse
+   ICERIK_ESIK buyutulur, hic uyari cikmiyorsa kucultulur. */
+const ICERIK_ESIK = 16;        // gri standart sapma
+const OKUNAMADI_KARE = 22;     // ~3.5 sn (160 ms x 22)
+const OKUNAMADI_ARA = 60;      // uyari sonrasi ~10 sn sessizlik
+let okunamadiSayac = 0, okunamadiBekle = 0, olcuKare = null;
+
+function icerikVar(v) {
+  try {
+    if (!olcuKare) {
+      olcuKare = document.createElement('canvas');
+      olcuKare.width = 64; olcuKare.height = 48;
+    }
+    const c = olcuKare.getContext('2d', { willReadFrequently: true });
+    c.drawImage(v, 0, 0, 64, 48);
+    const p = c.getImageData(0, 0, 64, 48).data;
+    let t = 0, kare = 0, n = 0;
+    // ATLAMA YOK: her 4. piksel orneklenince duzenli desen (siyah-beyaz-
+    // siyah…) hep ayni faza denk gelip varyansi 0 gosteriyordu — en
+    // kontrastli etiket "bos sahne" sayiliyordu. 3072 piksel bedava.
+    for (let i = 0; i < p.length; i += 4) {
+      const g = (p[i] * 299 + p[i + 1] * 587 + p[i + 2] * 114) / 1000;
+      t += g; kare += g * g; n++;
+    }
+    if (!n) return true;
+    const ort = t / n;
+    return Math.sqrt(Math.max(0, kare / n - ort * ort)) > ICERIK_ESIK;
+  } catch (e) { return true; }   // olcemezsek uyariyi ENGELLEME
+}
 $('#kamera').onclick = async function () {
   if (akis) {
     akis.getTracks().forEach((t) => t.stop());
@@ -680,6 +744,7 @@ $('#kamera').onclick = async function () {
     v.srcObject = akis; v.style.display = 'block'; await v.play();
     this.textContent = '⏹ Kamerayı durdur';
     sonKod = ''; ayniUyari = 0;     // yeniden baslatma kilidi sifirlar
+    okunamadiSayac = 0; okunamadiBekle = 0;
     $('#kameraNot').textContent = 'Etiketi çerçeveye tutun · çözülen: ' + istenen.join(', ');
     tara();
   } catch (e) {
@@ -691,7 +756,21 @@ async function tara() {
   if (!akis || !tarayici) return;
   try {
     const bulunan = await tarayici.detect($('#video'));
-    if (bulunan.length) {
+    if (!bulunan.length) {
+      // Kod cozulemedi. Kameraya bir sey tutuluyorsa sayac isler; bos
+      // sahnede islemez ki operator sirada beklerken bosuna calmasin.
+      if (okunamadiBekle > 0) okunamadiBekle--;
+      else if (!icerikVar($('#video'))) okunamadiSayac = 0;
+      else if (++okunamadiSayac >= OKUNAMADI_KARE) {
+        okunamadiSayac = 0; okunamadiBekle = OKUNAMADI_ARA;
+        goster('bekle', '⚠ OKUNAMADI', '',
+          'Silik/karalı/eksik ya da yamuk olabilir — yaklaştırıp düz tutun');
+        bipOkunamadi();
+        $('#kameraNot').textContent =
+          'Okunamadı — açıyı değiştirin, ışığı artırın ya da elle yazın.';
+      }
+    } else {
+      okunamadiSayac = 0; okunamadiBekle = 0;
       const kod = String(bulunan[0].rawValue || '').trim();
       // Kilit YALNIZCA farkli bir kod gorulunce acilir. Ayni etiket
       // kamerada ne kadar kalirsa kalsin, cekilip tekrar gosterilse bile

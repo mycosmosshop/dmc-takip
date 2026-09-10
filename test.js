@@ -1,9 +1,11 @@
 /* DMC takip — mantık kontrolü:  node test.js
  *
- * İki katman sınanır:
+ * Dört katman sınanır:
  *   A) kaydet()  — kod görülür görülmez karar (ağ arkada), sunucu düzeltmesi,
  *                  yazma hatasında havuzdan geri alma
  *   B) tara()    — kamera kilidi: aynı etiket tek kez, yeni etiket beklemesiz
+ *   C) okunamadı — etiket tutuluyor ama çözülemiyorsa uyarı; boş sahnede sessiz
+ *   D) anons     — mükerrer uyarısı Türkçe sesle okunuyor mu
  *
  * Kaynak dosyadan okunur; yardımcı değil ÜRETİLEN kod ölçülür.
  */
@@ -19,8 +21,10 @@ const ol = (ad, k, ek) => {
 const bekle = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* ══ A) kaydet(): sahte tarayıcı ortamı ══ */
-function ortam(sunucuYanit) {
+function ortam(sunucuYanit, sesler) {
     const gecen = [], yazilan = [], ekran = { dur: '', kod: '', ek: '' };
+    const konusulan = [];
+    sesler = sesler || [];
     const el = () => ({ value: '', textContent: '', className: '', checked: false,
         classList: { toggle() {}, add() {}, remove() {}, contains: () => false },
         querySelector: () => el(), style: {}, dataset: {},
@@ -55,41 +59,72 @@ function ortam(sunucuYanit) {
                 createGain: () => ({ connect() {}, gain: {
                     setValueAtTime() {}, exponentialRampToValueAtTime() {} } }) };
         },
-        speechSynthesis: { cancel() {}, speak() {} },
+        speechSynthesis: {
+            cancel() {}, speak(u) { konusulan.push(u); },
+            getVoices: () => sesler, addEventListener() {}
+        },
         SpeechSynthesisUtterance: function (m) { this.text = m; }
     };
     g.window = g;
-    const api = new Function('__k', 'with(__k){' + JS + '\nreturn {kaydet, bilinen};}')(
+    const api = new Function('__k', 'with(__k){' + JS + '\nreturn {kaydet, bilinen, anons};}')(
         new Proxy(g, { has: () => true, get: (o, p) => (p in o ? o[p] : undefined) }));
-    return { api, gecen, yazilan, ekran };
+    return { api, gecen, yazilan, ekran, konusulan };
 }
 
 const YAZDI = async () => ({ ok: true, status: 201, json: async () => [{}], text: async () => '' });
 
 /* ══ B) tara(): kamera döngüsünün kilit mantığı ══ */
-const bas = JS.indexOf('async function tara()');
-// setTimeout ile kendini çağıran kuyruk kesilir; döngü testte elle döndürülür
+// Sabitler, sayaclar ve icerikVar() da GERCEK kaynaktan gelsin diye dilim
+// "let akis"ten basliyor; setTimeout ile kendini cagiran kuyruk kesiliyor.
+const bas = JS.indexOf('let akis = null');
 const govde = JS.slice(bas, JS.indexOf('if (akis) setTimeout(tara', bas)) + '}';
 
+/* kareler: 'KOD' -> cozuldu · false -> bos sahne · true -> icerik var ama
+   cozulemiyor (silik/karali/yamuk etiket). */
 function kamera(kareler) {
-    const islenen = [], notlar = [];
-    let i = 0;
-    const g = {
-        akis: {},
-        tarayici: { detect: async () => {
-            const k = kareler[i++];
-            return k ? [{ rawValue: k }] : [];
-        } },
-        sonKod: '', ayniUyari: 0,
-        kaydet: (k) => islenen.push(k),
-        $: () => ({ set textContent(v) { notlar.push(v); }, get textContent() { return ''; } }),
-        setTimeout: () => 0, console, String, Math, Date, Promise, Object, Array
+    const islenen = [], notlar = [], uyarilar = [], sesler = [];
+    let i = 0, sonKare = null;
+    const tuval = {
+        width: 0, height: 0,
+        getContext: () => ({
+            drawImage() {},
+            getImageData: () => {
+                // Yuksek kontrast = kameraya bir sey tutuluyor.
+                // Duz zemin = bos sahne. icerikVar GERCEKTEN hesaplasin.
+                const d = new Uint8ClampedArray(64 * 48 * 4);
+                for (let k = 0; k < d.length; k += 4) {
+                    const v = sonKare === true
+                        ? (Math.floor(k / 32) % 2 ? 245 : 12)  // 8 piksellik bloklar
+                        : 128 + ((k / 4) % 3);                 // neredeyse duz
+                    d[k] = d[k + 1] = d[k + 2] = v; d[k + 3] = 255;
+                }
+                return { data: d };
+            }
+        })
     };
-    const fn = new Function('__k', 'with(__k){' + govde + '\nreturn tara;}')(
+    const g = {
+        // Dilim kendi "let akis/tarayici"sini getiriyor ve dis degeri
+        // GOLGELIYOR; kamerayi acilmis saymak icin dilimden SONRA atiyoruz.
+        __akis: {},
+        __tarayici: { detect: async () => {
+            const k = kareler[i++];
+            sonKare = k === true;
+            return (typeof k === 'string' && k) ? [{ rawValue: k }] : [];
+        } },
+        kaydet: (k) => islenen.push(k),
+        goster: (tur, dur, kod, ek) => uyarilar.push({ tur, dur, ek }),
+        bipOkunamadi: () => sesler.push('okunamadi'),
+        document: { createElement: () => tuval },
+        $: () => ({ set textContent(v) { notlar.push(v); }, get textContent() { return ''; } }),
+        setTimeout: () => 0, console, String, Math, Date, Promise, Object, Array,
+        Uint8ClampedArray
+    };
+    const fn = new Function('__k', 'with(__k){' + govde
+        + '\nakis = __akis; tarayici = __tarayici;\nreturn tara;}')(
         new Proxy(g, { has: () => true, get: (o, p) => (p in o ? o[p] : undefined),
             set: (o, p, v) => { o[p] = v; return true; } }));
     return { calistir: async () => { for (let k = 0; k < kareler.length; k++) await fn(); },
-             islenen, notlar };
+             islenen, notlar, uyarilar, sesler };
 }
 
 (async function () {
@@ -224,6 +259,67 @@ function kamera(kareler) {
         ol('“sıradaki etiketi gösterin” uyarısı çıkıyor',
             k.notlar.some((x) => /sıradaki etiketi/.test(x)),
             k.notlar[k.notlar.length - 1]);
+    }
+
+    console.log('\nC) okunamayan etiket');
+
+    /* Etiket tutuluyor ama çözülemiyor → uyarı */
+    {
+        const k = kamera(Array(30).fill(true));
+        await k.calistir();
+        const u = k.uyarilar[0];
+        ol('okunamayan etiket uyarı veriyor', k.uyarilar.length === 1 && u,
+            u ? u.dur : 'uyarı yok');
+        ol('uyarıda sebep ipucu var',
+            !!u && /silik/i.test(u.ek) && /yamuk/i.test(u.ek), u && u.ek);
+        ol('okunamadı sesi çaldı', k.sesler.length === 1);
+    }
+
+    /* Boş sahne: kamera boşta beklerken uyarı ÇALMAMALI */
+    {
+        const k = kamera(Array(60).fill(false));
+        await k.calistir();
+        ol('boş sahnede uyarı çıkmıyor', k.uyarilar.length === 0,
+            k.uyarilar.length + ' uyarı');
+    }
+
+    /* Uyarı sonrası sessizlik penceresi: art arda çalmamalı */
+    {
+        const k = kamera(Array(70).fill(true));
+        await k.calistir();
+        ol('uyarı art arda tekrarlamıyor', k.uyarilar.length === 1,
+            k.uyarilar.length + ' uyarı / 70 kare');
+    }
+
+    /* Kod okunursa sayaç sıfırlanır — okuma sonrası hemen uyarı gelmemeli */
+    {
+        const k = kamera([].concat(Array(20).fill(true), ['KOD-X'], Array(20).fill(true)));
+        await k.calistir();
+        ol('okuma sayacı sıfırlıyor (okuma sonrası erken uyarı yok)',
+            k.islenen.length === 1 && k.uyarilar.length === 0,
+            k.uyarilar.length + ' uyarı');
+    }
+
+    console.log('\nD) sesli anons Türkçe');
+
+    /* Cihazda Türkçe ses varsa o seçilmeli */
+    {
+        const { api, konusulan } = ortam(YAZDI,
+            [{ lang: 'en-US', name: 'English' }, { lang: 'tr-TR', name: 'Türkçe' }]);
+        api.anons('Mükerrer kod');
+        ol('Türkçe ses seçildi',
+            konusulan.length === 1 && konusulan[0].voice
+            && /^tr/i.test(konusulan[0].voice.lang),
+            konusulan[0] && konusulan[0].voice && konusulan[0].voice.name);
+        ol('lang tr-TR', konusulan[0] && konusulan[0].lang === 'tr-TR');
+    }
+
+    /* Türkçe ses yoksa İngilizce telaffuzla okumasın */
+    {
+        const { api, konusulan } = ortam(YAZDI, [{ lang: 'en-US', name: 'English' }]);
+        api.anons('Mükerrer kod');
+        ol('Türkçe ses yoksa anons yapılmıyor (bip yeterli)',
+            konusulan.length === 0, konusulan.length + ' anons');
     }
 
     console.log('\n' + (hata ? hata + ' test BAŞARISIZ' : 'tüm testler geçti'));
