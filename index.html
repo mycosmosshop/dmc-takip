@@ -16,16 +16,20 @@
   body{margin:0;font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
        background:var(--zemin);color:var(--metin);-webkit-text-size-adjust:100%}
   header{background:linear-gradient(135deg,var(--ana),var(--ana2));color:#fff;
-         padding:12px 14px;position:sticky;top:0;z-index:10}
+         padding:11px 14px;position:sticky;top:0;z-index:10;
+         display:flex;align-items:center;justify-content:space-between;gap:8px}
   header h1{margin:0;font-size:16px;font-weight:700;letter-spacing:.2px}
   header .alt{font-size:11.5px;opacity:.85;margin-top:2px}
+  #yonetimAc{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);
+             color:#fff;width:34px;height:34px;border-radius:9px;font-size:15px;flex:0 0 auto}
   .sar{max-width:640px;margin:0 auto;padding:12px 12px 90px}
   .kart{background:var(--kart);border:1px solid var(--kenar);border-radius:12px;
         padding:12px;margin-bottom:12px}
   label{display:block;font-size:11.5px;font-weight:700;letter-spacing:.05em;
         text-transform:uppercase;color:var(--soluk);margin-bottom:5px}
-  select,input[type=text]{width:100%;height:42px;padding:0 10px;font-size:16px;
-        border:1px solid var(--kenar);border-radius:9px;background:#fff;color:var(--metin)}
+  select,input[type=text],input[type=password]{width:100%;height:42px;padding:0 10px;
+        font-size:16px;border:1px solid var(--kenar);border-radius:9px;
+        background:#fff;color:var(--metin)}
   .ikili{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   button{font:inherit;cursor:pointer;border-radius:10px;border:1px solid transparent}
   .bas{width:100%;height:52px;font-size:17px;font-weight:700;color:#fff;
@@ -53,6 +57,8 @@
   td{padding:6px;border-bottom:1px solid #eef1f5;vertical-align:top}
   td.k{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;word-break:break-all}
   tr.mk td{background:var(--hataZemin)}
+  td.sec,th.sec{width:30px;text-align:center;padding:6px 2px}
+  input[type=checkbox]{width:19px;height:19px;accent-color:var(--ana)}
   .rozet{display:inline-block;font-size:10.5px;font-weight:700;padding:1px 6px;
          border-radius:999px;background:var(--okZemin);color:var(--ok)}
   .rozet.m{background:#f9d9d6;color:var(--hata)}
@@ -60,10 +66,14 @@
   .durum{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--soluk)}
   .nokta{width:8px;height:8px;border-radius:50%;background:#9ca3af}
   .nokta.acik{background:#16a34a}.nokta.kapali{background:#dc2626}
+  .satir{display:flex;gap:8px;flex-wrap:wrap}
+  .satir button{flex:1 1 auto;min-width:130px}
+  .gizli{display:none!important}
+  .yonetimKutu{border-left:3px solid var(--hata);background:var(--hataZemin)}
   @media(prefers-color-scheme:dark){
     :root{--zemin:#161a20;--kart:#20252c;--kenar:#333a44;--metin:#e6e9ee;--soluk:#9aa3af;
           --okZemin:#16301f;--hataZemin:#331a19;--uyariZemin:#302713}
-    select,input[type=text],.ikinci{background:#20252c;color:var(--metin)}
+    select,input[type=text],input[type=password],.ikinci{background:#20252c;color:var(--metin)}
     .sayac div{background:#1a1f26}
     td{border-bottom-color:#2a3038}
   }
@@ -71,13 +81,32 @@
 </head>
 <body>
 <header>
-  <h1>DMC Mükerrer Kod Takibi</h1>
-  <div class="alt">Sanifoam · ortak havuz — Çerkezköy ve Almanya aynı listeyi görür</div>
+  <div>
+    <h1>DMC Mükerrer Kod Takibi</h1>
+    <div class="alt">Sanifoam · ortak havuz — her lokasyon aynı listeyi görür</div>
+  </div>
+  <button id="yonetimAc" title="Yönetim">⚙</button>
 </header>
 
 <div class="sar">
 
+  <!-- Sonuc ve kamera EN USTTE: operator etiketi tutarken sonucu ayni
+       ekranda gormeli, kaydirmak zorunda kalmamali. -->
   <div id="sonuc"><div class="dur"></div><div class="kod"></div><div class="ek"></div></div>
+
+  <div class="kart">
+    <button class="ikinci" id="kamera" style="width:100%">📷 Kamerayı başlat</button>
+    <video id="video" playsinline muted></video>
+    <div class="dip" id="kameraNot"></div>
+  </div>
+
+  <div class="kart">
+    <label for="elle">Kod</label>
+    <input type="text" id="elle" placeholder="Kodu okut ya da elle yaz" autocomplete="off"
+           autocapitalize="characters" enterkeyhint="done">
+    <div style="height:10px"></div>
+    <button class="bas" id="kaydet">Kaydet ve kontrol et</button>
+  </div>
 
   <div class="kart">
     <div class="ikili">
@@ -98,18 +127,6 @@
   </div>
 
   <div class="kart">
-    <label for="elle">Kod</label>
-    <input type="text" id="elle" placeholder="Kodu okut ya da elle yaz" autocomplete="off"
-           autocapitalize="characters" enterkeyhint="done">
-    <div style="height:10px"></div>
-    <button class="bas" id="kaydet">Kaydet ve kontrol et</button>
-    <div style="height:8px"></div>
-    <button class="ikinci" id="kamera" style="width:100%">📷 Kamerayı başlat</button>
-    <video id="video" playsinline muted></video>
-    <div class="dip" id="kameraNot"></div>
-  </div>
-
-  <div class="kart">
     <div class="sayac">
       <div><b id="sT">0</b><span>toplam</span></div>
       <div><b id="sY">0</b><span>yeni</span></div>
@@ -120,11 +137,38 @@
   </div>
 
   <div class="kart">
-    <label>Son okumalar</label>
-    <table><thead><tr><th>Kod</th><th>Yer</th><th>Saat</th></tr></thead>
-      <tbody id="liste"><tr><td colspan="3" style="color:var(--soluk)">—</td></tr></tbody></table>
+    <label>Kayıtlar</label>
+    <table>
+      <thead><tr>
+        <th class="sec"><input type="checkbox" id="hepsiSec" title="Tümünü seç"></th>
+        <th>Kod</th><th>Yer</th><th>Saat</th>
+      </tr></thead>
+      <tbody id="liste"><tr><td colspan="4" style="color:var(--soluk)">—</td></tr></tbody>
+    </table>
     <div style="height:10px"></div>
-    <button class="ikinci" id="yenile">↻ Listeyi yenile</button>
+    <div class="satir">
+      <button class="ikinci" id="yenile">↻ Yenile</button>
+      <button class="ikinci" id="excel">⬇ Excel'e aktar</button>
+      <button class="ikinci" id="paylas">↗ Paylaş</button>
+    </div>
+    <div style="height:8px"></div>
+    <button class="ikinci tehlike gizli" id="secSil" style="width:100%">
+      🗑 Seçilenleri sil (<span id="secSay">0</span>)</button>
+    <div class="dip" id="listeNot"></div>
+  </div>
+
+  <!-- Yonetim: kazara silmeyi onlemek icin gizli. Gercek yetkilendirme
+       DEGIL — anon anahtar herkeste; RLS delete politikasi acik oldugu
+       surece teknik olarak herkes silebilir. -->
+  <div class="kart yonetimKutu gizli" id="yonetimKutu">
+    <label>Yönetim</label>
+    <div class="dip" style="margin:0 0 8px">
+      Deneme kayıtlarını temizlemek için. Geri alınamaz.
+    </div>
+    <div class="satir">
+      <button class="ikinci tehlike" id="tumSil">⚠ Tüm kayıtları sıfırla</button>
+      <button class="ikinci" id="yonetimKapat">Kapat</button>
+    </div>
   </div>
 
 </div>
@@ -135,14 +179,15 @@
 const SB_URL = 'https://donjfzetqpzrgforhenu.supabase.co';
 const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRvbmpmemV0cXB6cmdmb3JoZW51Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM5MzMyNTMsImV4cCI6MjA5OTUwOTI1M30.qKwUeImRijR9V7TUoXYAfGxJpMF2hocZzXFK8ph189I';
 const TABLO = 'dmc_okuma';
+const YONETIM_PIN = '1907';          /* kazara silmeye karsi; sir degil */
 const BASLIK = { apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
                  'Content-Type': 'application/json' };
 
 const $ = (s) => document.querySelector(s);
 const sonuc = $('#sonuc');
 let sayac = { t: 0, y: 0, m: 0 };
+let sonListe = [];
 
-/* Ayarlar telefonda kalsin: her okumada yeniden yazilmasin */
 try {
   $('#lok').value = localStorage.getItem('dmc_lok') || 'Çerkezköy';
   $('#kisi').value = localStorage.getItem('dmc_kisi') || '';
@@ -155,8 +200,7 @@ function durum(acik, yazi) {
   $('#durumYazi').textContent = yazi;
 }
 
-/* Sesli uyari: mukerrerde uzun ve alcak, yenide kisa ve yuksek.
-   Operator ekrana bakmadan da ayirt edebilsin. */
+/* Mukerrerde uzun-alcak, yenide kisa-yuksek: operator ekrana bakmadan ayirt eder */
 let sesBaglam = null;
 function bip(mukerrer) {
   try {
@@ -188,9 +232,9 @@ function saat(iso) {
   } catch (e) { return ''; }
 }
 
-/* ── Kayit: once AYNI kod var mi diye sorulur, sonra yazilir ──
-   Kod sutunu bilerek unique DEGIL: mukerrer deneme de kayda girsin ki
-   kimin nerede ne zaman ikinci kez okuttugu iz biraksin. */
+/* ── Kayit: once AYNI kod var mi diye sorulur, sonra yazilir. Kod sutunu
+      bilerek unique DEGIL: mukerrer deneme de kayda girsin ki kimin
+      nerede ne zaman ikinci kez okuttugu iz biraksin. ── */
 async function kaydet(kod) {
   kod = String(kod || '').trim().toUpperCase();
   if (!kod) return;
@@ -239,33 +283,141 @@ async function kaydet(kod) {
   listele();
 }
 
+/* ── Liste ── */
 async function listele() {
   try {
     const r = await fetch(SB_URL + '/rest/v1/' + TABLO
-      + '?select=kod,lokasyon,okuyan,mukerrer,zaman&order=zaman.desc&limit=25',
+      + '?select=id,kod,lokasyon,okuyan,mukerrer,zaman&order=zaman.desc&limit=300',
       { headers: BASLIK });
     if (!r.ok) throw new Error('HTTP ' + r.status);
-    const v = await r.json();
-    durum(true, 'bağlı · havuzda son ' + v.length + ' kayıt');
-    $('#liste').innerHTML = v.length ? v.map(function (s) {
+    sonListe = await r.json();
+    durum(true, 'bağlı · havuzda ' + sonListe.length + ' kayıt');
+    $('#liste').innerHTML = sonListe.length ? sonListe.map(function (s) {
       return '<tr class="' + (s.mukerrer ? 'mk' : '') + '">'
+        + '<td class="sec"><input type="checkbox" class="sc" data-id="' + s.id + '"></td>'
         + '<td class="k">' + s.kod
         + (s.mukerrer ? ' <span class="rozet m">MÜK</span>' : ' <span class="rozet">yeni</span>')
         + '</td><td>' + (s.lokasyon || '—')
         + (s.okuyan ? '<br><span style="color:var(--soluk);font-size:11px">' + s.okuyan + '</span>' : '')
         + '</td><td style="white-space:nowrap">' + saat(s.zaman) + '</td></tr>';
-    }).join('') : '<tr><td colspan="3" style="color:var(--soluk)">Henüz kayıt yok</td></tr>';
+    }).join('') : '<tr><td colspan="4" style="color:var(--soluk)">Henüz kayıt yok</td></tr>';
+    secGuncelle();
   } catch (e) {
     durum(false, 'liste alınamadı: ' + String(e.message || e).slice(0, 60));
   }
 }
+
+function secililer() {
+  return Array.prototype.slice.call(document.querySelectorAll('.sc:checked'))
+    .map((c) => c.dataset.id);
+}
+function secGuncelle() {
+  const n = secililer().length;
+  $('#secSay').textContent = n;
+  $('#secSil').classList.toggle('gizli', n === 0);
+}
+document.addEventListener('change', (e) => {
+  if (e.target.classList && e.target.classList.contains('sc')) secGuncelle();
+});
+$('#hepsiSec').onchange = function () {
+  document.querySelectorAll('.sc').forEach((c) => { c.checked = this.checked; });
+  secGuncelle();
+};
+
+/* ── Excel: CSV (BOM + noktali virgul) — Turkce Excel dogrudan acar ── */
+function csvUret() {
+  const bas = ['Kod', 'Durum', 'Lokasyon', 'Okuyan', 'Tarih', 'Saat'];
+  const satir = sonListe.map(function (s) {
+    const d = new Date(s.zaman);
+    return [s.kod, s.mukerrer ? 'MÜKERRER' : 'yeni', s.lokasyon || '', s.okuyan || '',
+            d.toLocaleDateString('tr-TR'), d.toLocaleTimeString('tr-TR')]
+      .map((h) => '"' + String(h).replace(/"/g, '""') + '"').join(';');
+  });
+  return '﻿' + bas.join(';') + '\n' + satir.join('\n');
+}
+function dosyaAdi() {
+  const d = new Date();
+  return 'DMC_' + d.toISOString().slice(0, 10) + '_' + sonListe.length + 'kayit.csv';
+}
+$('#excel').onclick = function () {
+  if (!sonListe.length) { $('#listeNot').textContent = 'Aktarılacak kayıt yok.'; return; }
+  const b = new Blob([csvUret()], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(b); a.download = dosyaAdi();
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  $('#listeNot').textContent = sonListe.length + ' kayıt indirildi: ' + a.download;
+};
+/* Paylas: telefondan PC'ye gecirmenin en kisa yolu (WhatsApp/mail) */
+$('#paylas').onclick = async function () {
+  if (!sonListe.length) { $('#listeNot').textContent = 'Paylaşılacak kayıt yok.'; return; }
+  const dosya = new File([csvUret()], dosyaAdi(), { type: 'text/csv' });
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [dosya] })) {
+      await navigator.share({ files: [dosya], title: 'DMC kayıtları' });
+      $('#listeNot').textContent = 'Paylaşıldı.';
+    } else {
+      $('#listeNot').textContent = 'Bu tarayıcı dosya paylaşamıyor — "Excel\'e aktar" ile indirin.';
+    }
+  } catch (e) { /* kullanici vazgecti */ }
+};
+
+/* ── Silme ── */
+async function sil(kosul, etiket) {
+  try {
+    const r = await fetch(SB_URL + '/rest/v1/' + TABLO + '?' + kosul,
+      { method: 'DELETE', headers: Object.assign({ Prefer: 'return=representation' }, BASLIK) });
+    if (!r.ok) {
+      const g = (await r.text()).slice(0, 160);
+      throw new Error('HTTP ' + r.status + ' ' + g);
+    }
+    const silinen = await r.json();
+    $('#listeNot').textContent = etiket + ': ' + silinen.length + ' kayıt silindi.';
+    sayac = { t: 0, y: 0, m: 0 };
+    $('#sT').textContent = 0; $('#sY').textContent = 0; $('#sM').textContent = 0;
+    $('#hepsiSec').checked = false;
+    sonuc.style.display = 'none';
+    listele();
+  } catch (e) {
+    const m = String(e.message || e);
+    $('#listeNot').textContent = 'Silinemedi: ' + m.slice(0, 130)
+      + (/42501|permission|policy/i.test(m)
+         ? '  → Supabase\'de DELETE politikası tanımlı değil (dmc_sil).' : '');
+  }
+}
+$('#secSil').onclick = function () {
+  const idler = secililer();
+  if (!idler.length) return;
+  if (!confirm(idler.length + ' kayıt silinecek. Geri alınamaz.\n\nDevam?')) return;
+  sil('id=in.(' + idler.join(',') + ')', 'Seçilenler');
+};
+$('#tumSil').onclick = function () {
+  if (!confirm('TÜM kayıtlar silinecek (' + sonListe.length + ' satır).\n\n'
+      + 'Deneme verisini temizlemek içindir, geri alınamaz. Devam?')) return;
+  if (!confirm('Emin misiniz? Bu işlem havuzu tamamen boşaltır.')) return;
+  sil('id=gt.0', 'Tümü');
+};
+
+/* Yonetim: kazara silmeyi onler. GERCEK yetkilendirme degil — anon
+   anahtar herkeste, RLS delete politikasi acikken teknik olarak herkes
+   silebilir. Sortie bitince politikayi kapatmak gerekir. */
+$('#yonetimAc').onclick = function () {
+  const k = $('#yonetimKutu');
+  if (!k.classList.contains('gizli')) { k.classList.add('gizli'); return; }
+  const g = prompt('Yönetim PIN:');
+  if (g === null) return;
+  if (g.trim() !== YONETIM_PIN) { alert('PIN hatalı.'); return; }
+  k.classList.remove('gizli');
+  k.scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+$('#yonetimKapat').onclick = () => $('#yonetimKutu').classList.add('gizli');
 
 $('#kaydet').onclick = () => kaydet($('#elle').value);
 $('#elle').addEventListener('keydown', (e) => { if (e.key === 'Enter') kaydet($('#elle').value); });
 $('#yenile').onclick = listele;
 
 /* ── Kamera: BarcodeDetector (Android Chrome). iOS Safari Data Matrix
-      cozemiyor; o durumda dugme gizlenir, elle giris devrede kalir. ── */
+      cozemiyor; o durumda elle giris devrede kalir. ── */
 let akis = null, tarayici = null, sonKod = '', sonAn = 0;
 $('#kamera').onclick = async function () {
   if (akis) {
@@ -301,8 +453,8 @@ async function tara() {
     const bulunan = await tarayici.detect($('#video'));
     if (bulunan.length) {
       const kod = String(bulunan[0].rawValue || '').trim();
-      // Ayni kod kamera onunde dururken saniyede bir kez sayilir
       const simdi = Date.now();
+      // Ayni kod kamera onunde dururken 2.5 sn'de bir kez sayilir
       if (kod && (kod !== sonKod || simdi - sonAn > 2500)) {
         sonKod = kod; sonAn = simdi;
         kaydet(kod);
