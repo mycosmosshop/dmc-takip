@@ -202,6 +202,10 @@ const sonuc = $('#sonuc');
 let sayac = { t: 0, y: 0, m: 0 };
 let sonListe = [];
 let toplamKayit = null;
+/* Bilinen kodlar: karar bundan verilir, ag beklenmez. Sunucu son sozu
+   soyler ama ekran once dolar. */
+const bilinen = new Set();
+let havuzHazir = false;
 
 try {
   $('#lok').value = localStorage.getItem('dmc_lok') || 'Çerkezköy';
@@ -209,6 +213,34 @@ try {
 } catch (e) {}
 $('#lok').onchange = () => { try { localStorage.setItem('dmc_lok', $('#lok').value); } catch (e) {} };
 $('#kisi').onchange = () => { try { localStorage.setItem('dmc_kisi', $('#kisi').value.trim()); } catch (e) {} };
+
+/* Yalniz 'kod' sutunu cekilir: 10 bin kayit ~150 KB, aciliste bir kez. */
+async function havuzYukle(temizle) {
+  try {
+    let bas = 0;
+    const adim = 1000;
+    const yeni = new Set();
+    for (; bas < 200000; bas += adim) {
+      const r = await fetch(SB_URL + '/rest/v1/' + TABLO
+        + '?select=kod&mukerrer=is.false&offset=' + bas + '&limit=' + adim,
+        { headers: BASLIK });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const p = await r.json();
+      p.forEach((s) => yeni.add(String(s.kod)));
+      if (p.length < adim) break;
+    }
+    // CLEAR ETME: yukleme surerken okunan kodlar havuzdan dusuyordu ve
+    // bir sonraki okumada "yeni" gorunuyordu. Ekleyerek birlestirilir;
+    // yalniz silme sonrasi (temizle=true) tam tazeleme yapilir.
+    if (temizle) bilinen.clear();
+    yeni.forEach((k) => bilinen.add(k));
+    havuzHazir = true;
+    return true;
+  } catch (e) {
+    havuzHazir = false;
+    return false;
+  }
+}
 
 function durum(acik, yazi) {
   $('#nokta').className = 'nokta ' + (acik ? 'acik' : 'kapali');
@@ -259,15 +291,43 @@ function anons(metin) {
   } catch (e) {}
 }
 
+/* AudioContext bazi cihazlarda (sessiz anahtar, bazi Android surumleri)
+   hic ses vermiyordu. Yedek yol: WAV data URI'li <audio>. Ikisi birden
+   denenir; hangisi calarsa calar. */
+function wavCal(hz, sure, ses) {
+  try {
+    const oran = 8000, adet = Math.floor(oran * sure);
+    const veri = new Uint8Array(44 + adet * 2);
+    const dv = new DataView(veri.buffer);
+    const yaz = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
+    yaz(0, 'RIFF'); dv.setUint32(4, 36 + adet * 2, true); yaz(8, 'WAVEfmt ');
+    dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+    dv.setUint32(24, oran, true); dv.setUint32(28, oran * 2, true);
+    dv.setUint16(32, 2, true); dv.setUint16(34, 16, true);
+    yaz(36, 'data'); dv.setUint32(40, adet * 2, true);
+    for (let i = 0; i < adet; i++) {
+      const s = Math.sin(2 * Math.PI * hz * i / oran) > 0 ? 1 : -1;   // kare dalga
+      dv.setInt16(44 + i * 2, s * 32767 * ses, true);
+    }
+    let ikili = '';
+    for (let i = 0; i < veri.length; i++) ikili += String.fromCharCode(veri[i]);
+    const a = new Audio('data:audio/wav;base64,' + btoa(ikili));
+    a.volume = 1;
+    a.play().catch(() => {});
+  } catch (e) {}
+}
+
 function bip(mukerrer) {
   if (sesAcik) {
     if (mukerrer) {
-      tonCal(300, 0.28, 0.00, 0.75);
-      tonCal(300, 0.28, 0.34, 0.75);
-      tonCal(220, 0.55, 0.68, 0.8);
-      setTimeout(() => anons('Mükerrer kod'), 1250);
+      tonCal(300, 0.30, 0.00, 0.85);
+      tonCal(300, 0.30, 0.36, 0.85);
+      tonCal(220, 0.65, 0.72, 0.9);
+      wavCal(300, 1.35, 0.85);                    // yedek yol
+      setTimeout(() => anons('Mükerrer kod'), 1450);
     } else {
-      tonCal(1050, 0.12, 0, 0.45);
+      tonCal(1050, 0.14, 0, 0.55);
+      wavCal(1050, 0.14, 0.5);
     }
   }
   try {
@@ -294,51 +354,84 @@ function saat(iso) {
 /* ── Kayit: once AYNI kod var mi diye sorulur, sonra yazilir. Kod sutunu
       bilerek unique DEGIL: mukerrer deneme de kayda girsin ki kimin
       nerede ne zaman ikinci kez okuttugu iz biraksin. ── */
-async function kaydet(kod) {
+/* Kod gorulur gorulmez sonuc verilir: karar YEREL havuzdan, ag arkada.
+   Sunucu farkli soylerse ekran duzeltilir ve uyari yeniden calar. */
+let sonKayitKod = '', sonKayitAn = 0;
+function kaydet(kod) {
   kod = String(kod || '').trim().toUpperCase();
   if (!kod) return;
+  // Son emniyet: ayni kod 1.2 sn icinde iki kez gelirse (kamera titremesi,
+  // cift dokunus, Enter tekrari) tek sayilir. Kamera kilidi asilsa bile
+  // havuza cift satir girmez.
+  const su = Date.now();
+  if (kod === sonKayitKod && su - sonKayitAn < 1200) return;
+  sonKayitKod = kod; sonKayitAn = su;
   const lok = $('#lok').value, kisi = $('#kisi').value.trim();
-  goster('bekle', 'Kontrol ediliyor…', kod, '');
-  let onceki = [];
-  try {
-    const r = await fetch(SB_URL + '/rest/v1/' + TABLO
-      + '?select=lokasyon,okuyan,zaman&kod=eq.' + encodeURIComponent(kod)
-      + '&mukerrer=is.false&order=zaman.asc&limit=1', { headers: BASLIK });
-    if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + (await r.text()).slice(0, 120));
-    onceki = await r.json();
-  } catch (e) {
-    durum(false, 'bağlantı yok — kayıt yapılamadı');
-    goster('hata', 'BAĞLANTI YOK', kod, String(e.message || e).slice(0, 90));
-    bip(true);
-    return;
-  }
-  const mukerrer = onceki.length > 0;
-  try {
-    const r2 = await fetch(SB_URL + '/rest/v1/' + TABLO, {
-      method: 'POST', headers: BASLIK,
-      body: JSON.stringify({ kod: kod, lokasyon: lok, okuyan: kisi || null,
-                             mukerrer: mukerrer })
-    });
-    if (!r2.ok) throw new Error('HTTP ' + r2.status + ' ' + (await r2.text()).slice(0, 120));
-  } catch (e) {
-    durum(false, 'yazılamadı');
-    goster('hata', 'KAYDEDİLEMEDİ', kod, String(e.message || e).slice(0, 90));
-    bip(true);
-    return;
-  }
-  durum(true, 'bağlı');
+
+  // ── ANINDA karar (0 ms) ──
+  const mukerrer = bilinen.has(kod);
+  if (!mukerrer) bilinen.add(kod);
   sayac.t++; mukerrer ? sayac.m++ : sayac.y++;
-  $('#sT').textContent = sayac.t; $('#sY').textContent = sayac.y; $('#sM').textContent = sayac.m;
+  $('#sT').textContent = sayac.t; $('#sY').textContent = sayac.y;
+  $('#sM').textContent = sayac.m;
   if (mukerrer) {
-    const o = onceki[0];
     goster('hata', '⛔ MÜKERRER', kod,
-      'İlk okuma: ' + (o.lokasyon || '—') + (o.okuyan ? ' · ' + o.okuyan : '')
-      + ' · ' + saat(o.zaman));
+      havuzHazir ? 'Bu kod havuzda kayıtlı' : 'Havuz yükleniyordu — doğrulanıyor');
   } else {
     goster('ok', '✓ YENİ KOD', kod, lok + (kisi ? ' · ' + kisi : ''));
   }
   bip(mukerrer);
   $('#elle').value = '';
+
+  // ── Ag ARKADA: yaz, sonra gercek durumu dogrula ──
+  arkaPlan(kod, lok, kisi, mukerrer);
+}
+
+async function arkaPlan(kod, lok, kisi, mukerrerTahmin) {
+  // Yazma once: kayit kaybolmasin. Dogrulama sonra.
+  try {
+    const r = await fetch(SB_URL + '/rest/v1/' + TABLO, {
+      method: 'POST', headers: BASLIK,
+      body: JSON.stringify({ kod: kod, lokasyon: lok, okuyan: kisi || null,
+                             mukerrer: mukerrerTahmin })
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + (await r.text()).slice(0, 100));
+    durum(true, 'bağlı');
+  } catch (e) {
+    // Sessizce yutma: operator "yeni" gordu ama kayit yok olabilir.
+    durum(false, 'KAYIT YAZILAMADI: ' + String(e.message || e).slice(0, 60));
+    goster('hata', '⚠ KAYDEDİLEMEDİ', kod, 'Bağlantıyı kontrol edip tekrar okutun');
+    bip(true);
+    bilinen.delete(kod);            // yazilamadi, bilinen sayilmasin
+    return;
+  }
+
+  // Gercek durum: bu koddan KAC "yeni" kayit var?
+  try {
+    const r2 = await fetch(SB_URL + '/rest/v1/' + TABLO
+      + '?select=lokasyon,okuyan,zaman&kod=eq.' + encodeURIComponent(kod)
+      + '&mukerrer=is.false&order=zaman.asc&limit=2', { headers: BASLIK });
+    if (!r2.ok) return;
+    const v = await r2.json();
+    // Yerel havuz eskiyse (baska telefon once okutmus) burada anlasilir.
+    const gercekMukerrer = v.length > 1 || (v.length === 1 && mukerrerTahmin);
+    if (!mukerrerTahmin && v.length > 1) {
+      const ilk = v[0];
+      goster('hata', '⛔ MÜKERRER (sunucu)', kod,
+        'İlk okuma: ' + (ilk.lokasyon || '—') + (ilk.okuyan ? ' · ' + ilk.okuyan : '')
+        + ' · ' + saat(ilk.zaman));
+      bip(true);
+      sayac.y--; sayac.m++;
+      $('#sY').textContent = sayac.y; $('#sM').textContent = sayac.m;
+    } else if (mukerrerTahmin && v.length === 1) {
+      // Yerelde mukerrer sandik, sunucuda ilk okuma bilgisi var: detayi yaz
+      const ilk = v[0];
+      goster('hata', '⛔ MÜKERRER', kod,
+        'İlk okuma: ' + (ilk.lokasyon || '—') + (ilk.okuyan ? ' · ' + ilk.okuyan : '')
+        + ' · ' + saat(ilk.zaman));
+    }
+    void gercekMukerrer;
+  } catch (e) { /* dogrulama basarisiz: ekran yerel karari gosterir */ }
   listele();
 }
 
@@ -428,15 +521,51 @@ function dosyaAdi(n) {
   const d = new Date();
   return 'DMC_' + d.toISOString().slice(0, 10) + '_' + n + 'kayit.csv';
 }
+/* CSV renk tasiyamaz. Excel'in actigi HTML tablosu tasir: mukerrer
+   satirlar kirmizi zeminli gelir, Turkce meta charset ile gecer, ayrac
+   sorunu da olmaz. */
+function xlsUret(kayitlar) {
+  const esc = (h) => String(h == null ? '' : h)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const satir = kayitlar.map(function (s) {
+    const d = new Date(s.zaman);
+    const zem = s.mukerrer ? ' style="background:#fdecea;color:#b42318;font-weight:bold"' : '';
+    return '<tr' + zem + '>'
+      + '<td style="mso-number-format:\\@">' + esc(s.kod) + '</td>'
+      + '<td>' + (s.mukerrer ? 'MÜKERRER' : 'yeni') + '</td>'
+      + '<td>' + esc(s.lokasyon) + '</td>'
+      + '<td>' + esc(s.okuyan) + '</td>'
+      + '<td>' + d.toLocaleDateString('tr-TR') + '</td>'
+      + '<td>' + d.toLocaleTimeString('tr-TR') + '</td></tr>';
+  }).join('');
+  const mk = kayitlar.filter((s) => s.mukerrer).length;
+  return '<html xmlns:x="urn:schemas-microsoft-com:office:excel">'
+    + '<head><meta charset="utf-8">'
+    + '<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets>'
+    + '<x:ExcelWorksheet><x:Name>DMC</x:Name><x:WorksheetOptions>'
+    + '<x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet>'
+    + '</x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->'
+    + '</head><body>'
+    + '<table border="1" cellspacing="0" style="border-collapse:collapse;font:11pt Calibri">'
+    + '<tr style="background:#0f2f6e;color:#fff;font-weight:bold">'
+    + '<th>Kod</th><th>Durum</th><th>Lokasyon</th><th>Okuyan</th>'
+    + '<th>Tarih</th><th>Saat</th></tr>'
+    + satir + '</table>'
+    + '<p style="font:9pt Calibri;color:#666">Toplam ' + kayitlar.length
+    + ' kayıt · ' + mk + ' mükerrer · Sanifoam DMC takip</p>'
+    + '</body></html>';
+}
+
 $('#excel').onclick = async function () {
   $('#listeNot').textContent = 'Tüm kayıtlar toplanıyor…';
   let k;
   try { k = await tumKayitlar(); }
   catch (e) { $('#listeNot').textContent = 'Aktarılamadı: ' + String(e.message || e); return; }
   if (!k.length) { $('#listeNot').textContent = 'Aktarılacak kayıt yok.'; return; }
-  const b = new Blob([csvUret(k)], { type: 'text/csv;charset=utf-8' });
+  const b = new Blob([xlsUret(k)], { type: 'application/vnd.ms-excel;charset=utf-8' });
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(b); a.download = dosyaAdi(k.length);
+  a.href = URL.createObjectURL(b);
+  a.download = dosyaAdi(k.length).replace(/\.csv$/, '.xls');
   document.body.appendChild(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
   $('#listeNot').textContent = k.length + ' kayıt indirildi: ' + a.download;
@@ -477,6 +606,7 @@ async function sil(kosul, etiket) {
     sonuc.querySelector('.dur').textContent = 'Kod bekleniyor';
     sonuc.querySelector('.kod').textContent = '';
     sonuc.querySelector('.ek').textContent = 'Kamerayı başlatın ya da elle yazın';
+    havuzYukle(true);          // silme sonrasi: tam tazeleme
     listele();
   } catch (e) {
     const m = String(e.message || e);
@@ -527,7 +657,7 @@ $('#yenile').onclick = listele;
 
 /* ── Kamera: BarcodeDetector (Android Chrome). iOS Safari Data Matrix
       cozemiyor; o durumda elle giris devrede kalir. ── */
-let akis = null, tarayici = null, sonKod = '', sonAn = 0;
+let akis = null, tarayici = null, sonKod = '', bosKare = 0;
 $('#kamera').onclick = async function () {
   if (akis) {
     akis.getTracks().forEach((t) => t.stop());
@@ -562,19 +692,31 @@ async function tara() {
     const bulunan = await tarayici.detect($('#video'));
     if (bulunan.length) {
       const kod = String(bulunan[0].rawValue || '').trim();
-      const simdi = Date.now();
-      // Ayni kod kamera onunde dururken 2.5 sn'de bir kez sayilir
-      if (kod && (kod !== sonKod || simdi - sonAn > 2500)) {
-        sonKod = kod; sonAn = simdi;
+      bosKare = 0;
+      // Ayni etiket kamera onunde DURDUGU SURECE bir kez islenir.
+      // Sure temelli olsaydi (eski hal) etiketi uzun tutan operator
+      // ayni kodu ikinci kez kaydeder ve SAHTE mukerrer alarmi alirdi.
+      if (kod && kod !== sonKod) {
+        sonKod = kod;
         kaydet(kod);
       }
+    } else if (++bosKare >= 4) {
+      // Etiket cekildi (~0.6 sn): siradaki etiket okunabilir
+      sonKod = '';
     }
   } catch (e) {}
-  if (akis) setTimeout(tara, 300);
+  if (akis) setTimeout(tara, 160);   // gorur gormez islesin
 }
 
-listele();
-setInterval(listele, 60000);   // havuz baska telefondan da doluyor
+(async function () {
+  durum(false, 'havuz yükleniyor…');
+  const ok = await havuzYukle();
+  durum(ok, ok ? 'hazır · ' + bilinen.size + ' kod havuzda'
+               : 'havuz yüklenemedi — kontrol yavaş olabilir');
+  listele();
+})();
+// Baska telefonun ekledigi kodlar icin havuz ve liste tazelenir
+setInterval(function () { havuzYukle(); listele(); }, 60000);
 </script>
 </body>
 </html>
