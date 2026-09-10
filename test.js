@@ -27,10 +27,14 @@ function ortam(sunucuYanit, sesler) {
     const konusulan = [];
     const liste = { html: '' };
     sesler = sesler || [];
-    const el = () => ({ value: '', textContent: '', className: '', checked: false,
+    // Ayni secici ayni ogeyi dondurmeli: yoksa uygulamanin atadigi
+    // onclick baska bir kopyaya yazilir ve test dugmeye basamaz.
+    const kutu = {};
+    const el = (s) => (kutu[s] || (kutu[s] = { value: '', textContent: '',
+        className: '', checked: false,
         classList: { toggle() {}, add() {}, remove() {}, contains: () => false },
-        querySelector: () => el(), style: {}, dataset: {},
-        addEventListener() {}, scrollIntoView() {} });
+        querySelector: () => el(s + ' *'), style: {}, dataset: {},
+        addEventListener() {}, scrollIntoView() {} }));
     const g = {
         fetch: async (url, o) => {
             gecen.push({ url, yontem: (o && o.method) || 'GET' });
@@ -45,8 +49,9 @@ function ortam(sunucuYanit, sesler) {
                     }, get textContent() { return ''; } }) }
                 : s === '#liste'
                 ? { set innerHTML(v) { liste.html = v; }, get innerHTML() { return liste.html; } }
-                : el()),
-            createElement: el, body: { appendChild() {} },
+                : el(s)),          // seciciyi GECIR: yoksa hepsi tek ogeye duser
+            createElement: () => el('#yeni' + Math.random()),
+            body: { appendChild() {} },
             addEventListener() {}, getElementById: el
         },
         localStorage: { getItem: () => null, setItem() {} },
@@ -72,7 +77,7 @@ function ortam(sunucuYanit, sesler) {
     g.window = g;
     const api = new Function('__k', 'with(__k){' + JS + '\nreturn {kaydet, bilinen, anons, okunamadiKaydet, havuzYukle, xlsUret, listele};}')(
         new Proxy(g, { has: () => true, get: (o, p) => (p in o ? o[p] : undefined) }));
-    return { api, gecen, yazilan, ekran, konusulan, liste };
+    return { api, gecen, yazilan, ekran, konusulan, liste, dom: el };
 }
 
 const YAZDI = async () => ({ ok: true, status: 201, json: async () => [{}], text: async () => '' });
@@ -288,9 +293,18 @@ function kamera(kareler) {
 
     console.log('\nC) okunamayan etiket');
 
-    /* Etiket tutuluyor ama çözülemiyor → uyarı */
+    /* Kamera açılıp boşluğa bakarken HİÇ uyarmamalı — sahadaki asıl
+       şikâyet buydu: "boşlukta daha DMC görmeden okunamadı diyor". */
     {
-        const k = kamera(Array(40).fill(ETIKET));
+        const k = kamera(Array(100).fill(ETIKET));
+        await k.calistir();
+        ol('hiç okuma olmadan uyarı çıkmıyor', k.uyarilar.length === 0,
+            k.uyarilar.length + ' uyarı / 100 kare');
+    }
+
+    /* Bir okuma yapıldıktan sonra çözülemeyen etiket → uyarı */
+    {
+        const k = kamera(['K1'].concat(Array(80).fill(ETIKET)));
         await k.calistir();
         const u = k.uyarilar[0];
         ol('okunamayan etiket uyarı veriyor', k.uyarilar.length === 1 && u,
@@ -301,20 +315,22 @@ function kamera(kareler) {
     }
 
     /* Sahada yanlış alarm üreten üç sahne: hiçbiri uyarmamalı */
+    // Basina bir okuma konuyor ki desen olcutu GERCEKTEN sinansin;
+    // yoksa "hic okuma yok" kurali testi zaten sessiz gecirirdi.
     {
-        const k = kamera(Array(80).fill(MASA));
+        const k = kamera(['K1'].concat(Array(120).fill(MASA)));
         await k.calistir();
         ol('boş tezgâhta uyarı çıkmıyor', k.uyarilar.length === 0,
             k.uyarilar.length + ' uyarı');
     }
     {
-        const k = kamera(Array(80).fill(KAGIT));
+        const k = kamera(['K1'].concat(Array(120).fill(KAGIT)));
         await k.calistir();
         ol('beyaz kâğıt/ambalajda uyarı çıkmıyor', k.uyarilar.length === 0,
             k.uyarilar.length + ' uyarı');
     }
     {
-        const k = kamera(Array(80).fill(KARANLIK));
+        const k = kamera(['K1'].concat(Array(120).fill(KARANLIK)));
         await k.calistir();
         ol('karanlıkta uyarı çıkmıyor', k.uyarilar.length === 0,
             k.uyarilar.length + ' uyarı');
@@ -322,10 +338,10 @@ function kamera(kareler) {
 
     /* Uyarı sonrası sessizlik penceresi: art arda çalmamalı */
     {
-        const k = kamera(Array(80).fill(ETIKET));
+        const k = kamera(['K1'].concat(Array(120).fill(ETIKET)));
         await k.calistir();
         ol('uyarı art arda tekrarlamıyor', k.uyarilar.length === 1,
-            k.uyarilar.length + ' uyarı / 80 kare');
+            k.uyarilar.length + ' uyarı / 120 kare');
     }
 
     /* BAŞARILI okumadan hemen sonra uyarı gelmemeli — sahada "hem okuyor
@@ -341,7 +357,7 @@ function kamera(kareler) {
 
     /* Ama okuma sonrası UZUN süre çözülemezse yine uyarmalı */
     {
-        const k = kamera(['K1'].concat(Array(70).fill(ETIKET)));
+        const k = kamera(['K1'].concat(Array(80).fill(ETIKET)));
         await k.calistir();
         ol('okuma sonrası uzun süre çözülemezse uyarıyor',
             k.uyarilar.length === 1, k.uyarilar.length + ' uyarı');
@@ -380,6 +396,19 @@ function kamera(kareler) {
         // Havuza girseydi İKİNCİ okunamayan etiket "mükerrer" görünürdü.
         ol('havuza girmedi (ikincisi mükerrer görünmesin)',
             !api.bilinen.has('(okunamadı)'));
+    }
+
+    /* Elle "⚠ Okunamadı" düğmesi — tahmine güvenmeyen kesin yol */
+    {
+        const { api, yazilan, ekran, dom } = ortam(YAZDI);
+        dom('#okunamadiEl').onclick();
+        ol('düğme ekranda OKUNAMADI gösteriyor', /OKUNAMADI/.test(ekran.dur),
+            ekran.dur);
+        await bekle(40);
+        ol('düğme kaydı sunucuya yazıyor',
+            yazilan.length === 1 && yazilan[0] === '(okunamadı)',
+            yazilan.join(','));
+        ol('düğme kaydı da havuza girmiyor', !api.bilinen.has('(okunamadı)'));
     }
 
     /* Sunucudaki okunamadı kayıtları havuza ALINMAMALI */

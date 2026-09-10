@@ -93,7 +93,7 @@
 <header>
   <div>
     <h1>DMC Mükerrer Kod Takibi</h1>
-    <div class="alt">Sanifoam · ortak havuz — her lokasyon aynı listeyi görür</div>
+    <div class="alt">Sanifoam · ortak havuz — her lokasyon aynı listeyi görür<span id="surum"></span></div>
   </div>
   <div style="display:flex;gap:6px;flex:0 0 auto">
     <button id="sesAc" title="Sesli uyarı">🔊</button>
@@ -111,6 +111,10 @@
     <button class="ikinci" id="kamera" style="width:100%">📷 Kamerayı başlat</button>
     <video id="video" playsinline muted></video>
     <div class="dip" id="kameraNot"></div>
+    <!-- Otomatik tespit tahmine dayali ve yaniliyor; kesin yol operatorun
+         kendisi. Etiket okunmuyorsa tek dokunusla kayda girer. -->
+    <button class="ikinci tehlike" id="okunamadiEl"
+            style="width:100%;margin-top:8px">⚠ Okunamadı olarak kaydet</button>
   </div>
 
   <div class="kart">
@@ -718,7 +722,24 @@ if (!sesAcik) { $('#sesAc').textContent = '🔇'; $('#sesAc').classList.add('kap
 
 $('#kaydet').onclick = () => kaydet($('#elle').value);
 $('#elle').addEventListener('keydown', (e) => { if (e.key === 'Enter') kaydet($('#elle').value); });
+
+/* Elle bildirim: tahmin yok, operator soyluyor. */
+$('#okunamadiEl').onclick = function () {
+  goster('bekle', '⚠ OKUNAMADI', '',
+    'Kayda geçti — silik/karalı/eksik ya da yamuk etiket');
+  bipOkunamadi();
+  okunamadiKaydet();
+};
 $('#yenile').onclick = listele;
+
+/* Telefon eski surumu onbellekten aciyorsa anlasilsin: sunucudan gelen
+   son degisiklik zamani. Elle guncelleme gerektirmez. */
+try {
+  const d = new Date(document.lastModified);
+  $('#surum').textContent = ' · sür. ' + d.toLocaleDateString('tr-TR',
+    { day: '2-digit', month: '2-digit' }) + ' '
+    + d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+} catch (e) {}
 
 /* ── Kamera: BarcodeDetector (Android Chrome). iOS Safari Data Matrix
       cozemiyor; o durumda elle giris devrede kalir. ── */
@@ -741,11 +762,15 @@ let akis = null, tarayici = null, sonKod = '', ayniUyari = 0;
 const GECIS_ESIK = 45;         // komsu piksel parlaklik farki
 const GECIS_ORAN = 0.09;       // kirpilan alanda keskin gecis orani
 const UC_ORAN = 0.12;          // koyu VE acik piksellerin her biri en az
-const OKUNAMADI_KARE = 28;     // ~4.5 sn (160 ms x 28)
+const OKUNAMADI_KARE = 38;     // ~6 sn (160 ms x 38)
 const OKUNAMADI_ARA = 60;      // uyari sonrasi ~10 sn sessizlik
 const OKUMA_SONRASI = 25;      // BASARILI okumadan sonra ~4 sn sessizlik
 let okunamadiSayac = 0, okunamadiBekle = 0, olcuKare = null;
 let sonOlcum = '';             // esik ayari icin: son olculen degerler
+/* Kamera acilip bosluga bakarken uyari caliyordu. Otomatik uyari artik
+   YALNIZCA en az bir etiket okunduktan sonra devrede: operator o noktada
+   calisma modundadir, cozulemeyen kare anlamlidir. Once elle dugme var. */
+let okumaOldu = false;
 
 function icerikVar(v) {
   try {
@@ -806,7 +831,7 @@ $('#kamera').onclick = async function () {
     v.srcObject = akis; v.style.display = 'block'; await v.play();
     this.textContent = '⏹ Kamerayı durdur';
     sonKod = ''; ayniUyari = 0;     // yeniden baslatma kilidi sifirlar
-    okunamadiSayac = 0; okunamadiBekle = 0;
+    okunamadiSayac = 0; okunamadiBekle = 0; okumaOldu = false;
     $('#kameraNot').textContent = 'Etiketi çerçeveye tutun · çözülen: ' + istenen.join(', ');
     tara();
   } catch (e) {
@@ -821,7 +846,8 @@ async function tara() {
     if (!bulunan.length) {
       // Kod cozulemedi. Kameraya bir sey tutuluyorsa sayac isler; bos
       // sahnede islemez ki operator sirada beklerken bosuna calmasin.
-      if (okunamadiBekle > 0) okunamadiBekle--;
+      if (!okumaOldu) okunamadiSayac = 0;     // henuz hic okuma yok: sessiz
+      else if (okunamadiBekle > 0) okunamadiBekle--;
       else if (!icerikVar($('#video'))) okunamadiSayac = 0;
       else if (++okunamadiSayac >= OKUNAMADI_KARE) {
         okunamadiSayac = 0; okunamadiBekle = OKUNAMADI_ARA;
@@ -839,6 +865,7 @@ async function tara() {
       // "OKUNAMADI" ile eziliyordu. Basarili okuma kisa bir sessizlik
       // penceresi aciyor.
       okunamadiSayac = 0; okunamadiBekle = OKUMA_SONRASI;
+      okumaOldu = true;
       const kod = String(bulunan[0].rawValue || '').trim();
       // Kilit YALNIZCA farkli bir kod gorulunce acilir. Ayni etiket
       // kamerada ne kadar kalirsa kalsin, cekilip tekrar gosterilse bile
