@@ -1,11 +1,12 @@
 /* DMC takip — mantık kontrolü:  node test.js
  *
- * Dört katman sınanır:
+ * Beş katman sınanır:
  *   A) kaydet()  — kod görülür görülmez karar (ağ arkada), sunucu düzeltmesi,
  *                  yazma hatasında havuzdan geri alma
  *   B) tara()    — kamera kilidi: aynı etiket tek kez, yeni etiket beklemesiz
  *   C) okunamadı — etiket tutuluyor ama çözülemiyorsa uyarı; boş sahnede sessiz
  *   D) anons     — mükerrer uyarısı Türkçe sesle okunuyor mu
+ *   E) okunamadı kaydı — listeye/Excel'e giriyor, havuza girmiyor
  *
  * Kaynak dosyadan okunur; yardımcı değil ÜRETİLEN kod ölçülür.
  */
@@ -24,6 +25,7 @@ const bekle = (ms) => new Promise((r) => setTimeout(r, ms));
 function ortam(sunucuYanit, sesler) {
     const gecen = [], yazilan = [], ekran = { dur: '', kod: '', ek: '' };
     const konusulan = [];
+    const liste = { html: '' };
     sesler = sesler || [];
     const el = () => ({ value: '', textContent: '', className: '', checked: false,
         classList: { toggle() {}, add() {}, remove() {}, contains: () => false },
@@ -41,6 +43,8 @@ function ortam(sunucuYanit, sesler) {
                     set textContent(v) {
                         ekran[x === '.dur' ? 'dur' : x === '.kod' ? 'kod' : 'ek'] = v;
                     }, get textContent() { return ''; } }) }
+                : s === '#liste'
+                ? { set innerHTML(v) { liste.html = v; }, get innerHTML() { return liste.html; } }
                 : el()),
             createElement: el, body: { appendChild() {} },
             addEventListener() {}, getElementById: el
@@ -66,9 +70,9 @@ function ortam(sunucuYanit, sesler) {
         SpeechSynthesisUtterance: function (m) { this.text = m; }
     };
     g.window = g;
-    const api = new Function('__k', 'with(__k){' + JS + '\nreturn {kaydet, bilinen, anons};}')(
+    const api = new Function('__k', 'with(__k){' + JS + '\nreturn {kaydet, bilinen, anons, okunamadiKaydet, havuzYukle, xlsUret, listele};}')(
         new Proxy(g, { has: () => true, get: (o, p) => (p in o ? o[p] : undefined) }));
-    return { api, gecen, yazilan, ekran, konusulan };
+    return { api, gecen, yazilan, ekran, konusulan, liste };
 }
 
 const YAZDI = async () => ({ ok: true, status: 201, json: async () => [{}], text: async () => '' });
@@ -320,6 +324,60 @@ function kamera(kareler) {
         api.anons('Mükerrer kod');
         ol('Türkçe ses yoksa anons yapılmıyor (bip yeterli)',
             konusulan.length === 0, konusulan.length + ' anons');
+    }
+
+    console.log('\nE) okunamayan kayıt listeye giriyor');
+
+    /* Sunucuya yazılıyor ama HAVUZA girmiyor */
+    {
+        const { api, yazilan } = ortam(YAZDI);
+        await api.okunamadiKaydet();
+        ol('okunamayan kayıt sunucuya yazıldı',
+            yazilan.length === 1 && yazilan[0] === '(okunamadı)', yazilan.join(','));
+        // Havuza girseydi İKİNCİ okunamayan etiket "mükerrer" görünürdü.
+        ol('havuza girmedi (ikincisi mükerrer görünmesin)',
+            !api.bilinen.has('(okunamadı)'));
+    }
+
+    /* Sunucudaki okunamadı kayıtları havuza ALINMAMALI */
+    {
+        const { api } = ortam(async () => ({ ok: true, status: 200,
+            json: async () => [{ kod: '(okunamadı)' }, { kod: 'GERCEK-1' }],
+            text: async () => '' }));
+        await api.havuzYukle(true);
+        ol('havuz yüklemesi okunamadı kodunu süzüyor',
+            !api.bilinen.has('(okunamadı)') && api.bilinen.has('GERCEK-1'));
+    }
+
+    /* Listede sarı satır + rozet */
+    {
+        const { api, liste } = ortam(async () => ({ ok: true, status: 200,
+            headers: { get: () => null },
+            json: async () => [
+                { id: 1, kod: '(okunamadı)', mukerrer: false, lokasyon: 'Ankara',
+                  okuyan: '', zaman: '2026-09-10T08:00:00Z' },
+                { id: 2, kod: 'K1', mukerrer: true, lokasyon: 'Çerkezköy',
+                  okuyan: 'Ali', zaman: '2026-09-10T09:00:00Z' }],
+            text: async () => '' }));
+        await api.listele();
+        ol('listede OKUNAMADI rozeti var', /OKUNAMADI/.test(liste.html));
+        ol('okunamadı satırı sarı sınıfta', /class="om"/.test(liste.html));
+        ol('mükerrer satırı hâlâ kırmızı sınıfta', /class="mk"/.test(liste.html));
+    }
+
+    /* Excel: sarı satır, ayrı etiket, dipnotta sayı */
+    {
+        const { api } = ortam(YAZDI);
+        const x = api.xlsUret([
+            { kod: '(okunamadı)', mukerrer: false, lokasyon: 'Ankara',
+              okuyan: 'Ali', zaman: '2026-09-10T08:00:00Z' },
+            { kod: 'K1', mukerrer: true, lokasyon: 'Çerkezköy',
+              okuyan: 'Veli', zaman: '2026-09-10T09:00:00Z' }]);
+        ol('Excel okunamadı satırı sarı', /fdf3d8/.test(x));
+        ol('Excel durum sütunu OKUNAMADI', /<td>OKUNAMADI<\/td>/.test(x));
+        ol('mükerrer hâlâ kırmızı', /fdecea/.test(x));
+        ol('dipnotta okunamadı sayısı', /1 okunamadı/.test(x),
+            (x.match(/Toplam[^<]*/) || [])[0]);
     }
 
     console.log('\n' + (hata ? hata + ' test BAŞARISIZ' : 'tüm testler geçti'));

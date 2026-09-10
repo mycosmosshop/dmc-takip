@@ -55,7 +55,7 @@
   .ok{background:var(--okZemin);border-color:#b7e0c8;color:var(--ok)}
   .hata{background:var(--hataZemin);border-color:#f4c7c3;color:var(--hata)}
   .bekle{background:var(--uyariZemin);border-color:#f0dcae;color:var(--uyari)}
-  .sayac{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center}
+  .sayac{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;text-align:center}
   .sayac div{background:#f7f9fc;border:1px solid var(--kenar);border-radius:10px;padding:8px 4px}
   .sayac b{display:block;font-size:20px;line-height:1.1}
   .sayac span{font-size:10.5px;color:var(--soluk);text-transform:uppercase;letter-spacing:.04em}
@@ -65,11 +65,13 @@
   td{padding:6px;border-bottom:1px solid #eef1f5;vertical-align:top}
   td.k{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;word-break:break-all}
   tr.mk td{background:var(--hataZemin)}
+  tr.om td{background:var(--uyariZemin)}
   td.sec,th.sec{width:30px;text-align:center;padding:6px 2px}
   input[type=checkbox]{width:19px;height:19px;accent-color:var(--ana)}
   .rozet{display:inline-block;font-size:10.5px;font-weight:700;padding:1px 6px;
          border-radius:999px;background:var(--okZemin);color:var(--ok)}
   .rozet.m{background:#f9d9d6;color:var(--hata)}
+  .rozet.o{background:#f6e3b8;color:var(--uyari)}
   .dip{font-size:11.5px;color:var(--soluk);margin-top:6px}
   .durum{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--soluk)}
   .nokta{width:8px;height:8px;border-radius:50%;background:#9ca3af}
@@ -145,6 +147,7 @@
       <div><b id="sT">0</b><span>toplam</span></div>
       <div><b id="sY">0</b><span>yeni</span></div>
       <div><b id="sM">0</b><span>mükerrer</span></div>
+      <div><b id="sO">0</b><span>okunamadı</span></div>
     </div>
     <div style="height:10px"></div>
     <div class="durum"><span class="nokta" id="nokta"></span><span id="durumYazi">bağlanıyor…</span></div>
@@ -193,13 +196,16 @@
 const SB_URL = 'https://donjfzetqpzrgforhenu.supabase.co';
 const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRvbmpmemV0cXB6cmdmb3JoZW51Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM5MzMyNTMsImV4cCI6MjA5OTUwOTI1M30.qKwUeImRijR9V7TUoXYAfGxJpMF2hocZzXFK8ph189I';
 const TABLO = 'dmc_okuma';
+/* Okunamayan etiketin kodu yok; sabit bir isaret kaydediliyor. Bu kod
+   HAVUZA GIRMEZ (yoksa ikinci okunamayan "mukerrer" gorunur). */
+const OKUNAMADI_KOD = '(okunamadı)';
 const YONETIM_PIN = '1907';          /* kazara silmeye karsi; sir degil */
 const BASLIK = { apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY,
                  'Content-Type': 'application/json' };
 
 const $ = (s) => document.querySelector(s);
 const sonuc = $('#sonuc');
-let sayac = { t: 0, y: 0, m: 0 };
+let sayac = { t: 0, y: 0, m: 0, o: 0 };
 let sonListe = [];
 let toplamKayit = null;
 /* Bilinen kodlar: karar bundan verilir, ag beklenmez. Sunucu son sozu
@@ -226,7 +232,9 @@ async function havuzYukle(temizle) {
         { headers: BASLIK });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const p = await r.json();
-      p.forEach((s) => yeni.add(String(s.kod)));
+      // Okunamadi isareti gercek bir kod degil: havuza girerse ikinci
+      // okunamayan etiket "mukerrer" sayilir.
+      p.forEach((s) => { if (s.kod !== OKUNAMADI_KOD) yeni.add(String(s.kod)); });
       if (p.length < adim) break;
     }
     // CLEAR ETME: yukleme surerken okunan kodlar havuzdan dusuyordu ve
@@ -416,6 +424,26 @@ function kaydet(kod) {
   arkaPlan(kod, lok, kisi, mukerrer);
 }
 
+/* Okunamayan etiket kaydi. kaydet() KULLANILMAZ: kod sabit oldugu icin
+   havuz ve dogrulama sorgusu bunu mukerrer sanardi. Tek atislik yazma. */
+async function okunamadiKaydet() {
+  sayac.o++;
+  $('#sO').textContent = sayac.o;
+  const lok = $('#lok').value, kisi = $('#kisi').value.trim();
+  try {
+    const r = await fetch(SB_URL + '/rest/v1/' + TABLO, {
+      method: 'POST', headers: BASLIK,
+      body: JSON.stringify({ kod: OKUNAMADI_KOD, lokasyon: lok,
+                             okuyan: kisi || null, mukerrer: false })
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    listele();
+  } catch (e) {
+    // Sessizce yutma: operator uyariyi gordu ama kayit yok olabilir.
+    durum(false, 'okunamadı kaydı yazılamadı: ' + String(e.message || e).slice(0, 50));
+  }
+}
+
 async function arkaPlan(kod, lok, kisi, mukerrerTahmin) {
   // Yazma once: kayit kaybolmasin. Dogrulama sonra.
   try {
@@ -482,10 +510,13 @@ async function listele() {
     durum(true, 'bağlı · son ' + sonListe.length + ' kayıt gösteriliyor'
       + (toplamKayit !== null ? ' · havuzda toplam ' + toplamKayit : ''));
     $('#liste').innerHTML = sonListe.length ? sonListe.map(function (s) {
-      return '<tr class="' + (s.mukerrer ? 'mk' : '') + '">'
+      const okMaz = s.kod === OKUNAMADI_KOD;
+      return '<tr class="' + (okMaz ? 'om' : s.mukerrer ? 'mk' : '') + '">'
         + '<td class="sec"><input type="checkbox" class="sc" data-id="' + s.id + '"></td>'
         + '<td class="k">' + s.kod
-        + (s.mukerrer ? ' <span class="rozet m">MÜK</span>' : ' <span class="rozet">yeni</span>')
+        + (okMaz ? ' <span class="rozet o">OKUNAMADI</span>'
+                 : s.mukerrer ? ' <span class="rozet m">MÜK</span>'
+                              : ' <span class="rozet">yeni</span>')
         + '</td><td>' + (s.lokasyon || '—')
         + (s.okuyan ? '<br><span style="color:var(--soluk);font-size:11px">' + s.okuyan + '</span>' : '')
         + '</td><td style="white-space:nowrap">' + saat(s.zaman) + '</td></tr>';
@@ -558,16 +589,20 @@ function xlsUret(kayitlar) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const satir = kayitlar.map(function (s) {
     const d = new Date(s.zaman);
-    const zem = s.mukerrer ? ' style="background:#fdecea;color:#b42318;font-weight:bold"' : '';
+    const okMaz = s.kod === OKUNAMADI_KOD;
+    const zem = okMaz
+      ? ' style="background:#fdf3d8;color:#8a6100;font-weight:bold"'
+      : s.mukerrer ? ' style="background:#fdecea;color:#b42318;font-weight:bold"' : '';
     return '<tr' + zem + '>'
       + '<td style="mso-number-format:\\@">' + esc(s.kod) + '</td>'
-      + '<td>' + (s.mukerrer ? 'MÜKERRER' : 'yeni') + '</td>'
+      + '<td>' + (okMaz ? 'OKUNAMADI' : s.mukerrer ? 'MÜKERRER' : 'yeni') + '</td>'
       + '<td>' + esc(s.lokasyon) + '</td>'
       + '<td>' + esc(s.okuyan) + '</td>'
       + '<td>' + d.toLocaleDateString('tr-TR') + '</td>'
       + '<td>' + d.toLocaleTimeString('tr-TR') + '</td></tr>';
   }).join('');
   const mk = kayitlar.filter((s) => s.mukerrer).length;
+  const om = kayitlar.filter((s) => s.kod === OKUNAMADI_KOD).length;
   return '<html xmlns:x="urn:schemas-microsoft-com:office:excel">'
     + '<head><meta charset="utf-8">'
     + '<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets>'
@@ -581,7 +616,7 @@ function xlsUret(kayitlar) {
     + '<th>Tarih</th><th>Saat</th></tr>'
     + satir + '</table>'
     + '<p style="font:9pt Calibri;color:#666">Toplam ' + kayitlar.length
-    + ' kayıt · ' + mk + ' mükerrer · Sanifoam DMC takip</p>'
+    + ' kayıt · ' + mk + ' mükerrer · ' + om + ' okunamadı · Sanifoam DMC takip</p>'
     + '</body></html>';
 }
 
@@ -628,8 +663,9 @@ async function sil(kosul, etiket) {
     }
     const silinen = await r.json();
     $('#listeNot').textContent = etiket + ': ' + silinen.length + ' kayıt silindi.';
-    sayac = { t: 0, y: 0, m: 0 };
+    sayac = { t: 0, y: 0, m: 0, o: 0 };
     $('#sT').textContent = 0; $('#sY').textContent = 0; $('#sM').textContent = 0;
+    $('#sO').textContent = 0;
     $('#hepsiSec').checked = false;
     sonuc.className = 'bos';
     sonuc.querySelector('.dur').textContent = 'Kod bekleniyor';
@@ -766,6 +802,7 @@ async function tara() {
         goster('bekle', '⚠ OKUNAMADI', '',
           'Silik/karalı/eksik ya da yamuk olabilir — yaklaştırıp düz tutun');
         bipOkunamadi();
+        okunamadiKaydet();          // listede ve Excel'de iz biraksin
         $('#kameraNot').textContent =
           'Okunamadı — açıyı değiştirin, ışığı artırın ya da elle yazın.';
       }
