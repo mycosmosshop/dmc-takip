@@ -4,7 +4,7 @@
  *   A) kaydet()  — kod görülür görülmez karar (ağ arkada), sunucu düzeltmesi,
  *                  yazma hatasında havuzdan geri alma
  *   B) tara()    — kamera kilidi: aynı etiket tek kez, yeni etiket beklemesiz
- *   C) okunamadı — etiket tutuluyor ama çözülemiyorsa uyarı; boş sahnede sessiz
+ *   C) okunamadı — ZXing kararı: DMC yok mu, var ama bozuk mu
  *   D) anons     — mükerrer uyarısı Türkçe sesle okunuyor mu
  *   E) okunamadı kaydı — listeye/Excel'e giriyor, havuza girmiyor
  *
@@ -88,73 +88,67 @@ const YAZDI = async () => ({ ok: true, status: 201, json: async () => [{}], text
 const bas = JS.indexOf('let akis = null');
 const govde = JS.slice(bas, JS.indexOf('if (akis) setTimeout(tara', bas)) + '}';
 
-/* kareler elemanlari:
-     'KOD'    -> BarcodeDetector cozdu
-     ETIKET   -> kadrajda etiket var ama cozulemiyor (silik/karali/yamuk)
-     MASA     -> bos tezgah: yumusak orta tonlar
-     KAGIT    -> beyaz kagit/ambalaj: hep acik
-     KARANLIK -> dusuk isik: hep koyu
-   Son ucu sahada YANLIS ALARM ureten sahneler; icerikVar bunlari elemeli. */
-const ETIKET = true, MASA = false;
-const KAGIT = { s: 'kagit' }, KARANLIK = { s: 'karanlik' };
+/* kareler elemanlari — BarcodeDetector'in cozemedigi karelerde ZXing'in
+   ne dedigi belirleyici:
+     'KOD'      -> BarcodeDetector cozdu
+     BOS        -> ZXing NotFound: kadrajda DMC yok (bos tezgah, kagit…)
+     BOZUK      -> ZXing Checksum: DMC VAR ama okunamiyor
+     {zx:'K9'}  -> BarcodeDetector kacirdi, ZXing cozdu
+   Olculen gercek davranis: bos tezgah NotFound, karali/silik/kopuk etiket
+   Checksum, temiz/bulanik etiket cozuluyor. */
+const BOS = { z: 'yok' }, BOZUK = { z: 'okunamiyor' };
 
 function kamera(kareler) {
-    const islenen = [], notlar = [], uyarilar = [], sesler = [];
-    let i = 0, sahne = 'masa';
-    const G = 160, Y = 120;
-    const tuval = {
-        width: 0, height: 0,
-        getContext: () => ({
-            drawImage() {},
-            getImageData: () => {
-                const d = new Uint8ClampedArray(G * Y * 4);
-                for (let k = 0; k < d.length; k += 4) {
-                    const px = k / 4, x = px % G, y = (px / G) | 0;
-                    let v;
-                    if (sahne === 'etiket') {
-                        // DMC hucreleri: 4 piksellik siyah/beyaz bloklar
-                        v = ((((x / 4) | 0) + ((y / 4) | 0)) % 2) ? 240 : 15;
-                    } else if (sahne === 'kagit') {
-                        v = 225 + (px % 9);              // beyaz, hafif gurultu
-                    } else if (sahne === 'karanlik') {
-                        v = 25 + (px % 9);               // koyu, hafif gurultu
-                    } else {
-                        // Tezgah: yumusak degrade + hafif doku (keskin gecis yok)
-                        v = 105 + ((x + y) % 11) + Math.sin(x / 9) * 6;
-                    }
-                    d[k] = d[k + 1] = d[k + 2] = v; d[k + 3] = 255;
-                }
-                return { data: d };
+    const islenen = [], notlar = [], uyarilar = [], sesler = [], kayitlar = [];
+    let i = 0, sonSahne = BOS;
+
+    function NotFound() { this.ad = 'NotFound'; }
+    const sahteZx = {
+        Z: {
+            NotFoundException: NotFound,
+            BinaryBitmap: function () {},
+            HybridBinarizer: function () {},
+            HTMLCanvasElementLuminanceSource: function () {}
+        },
+        okuyucu: {
+            decode: () => {
+                const s = sonSahne;
+                if (s && s.z === 'okunamiyor') throw new Error('checksum');
+                if (s && s.zx) return { getText: () => s.zx };
+                throw new NotFound();
             }
-        })
+        },
+        tuval: null
     };
+    const tuval = { width: 0, height: 0,
+        getContext: () => ({ drawImage() {} }) };
+
     const g = {
-        // Dilim kendi "let akis/tarayici"sini getiriyor ve dis degeri
+        // Dilim kendi "let akis/tarayici/zx"ini getiriyor ve dis degeri
         // GOLGELIYOR; kamerayi acilmis saymak icin dilimden SONRA atiyoruz.
         __akis: {},
+        __zx: sahteZx,
         __tarayici: { detect: async () => {
             const k = kareler[i++];
-            sahne = k === true ? 'etiket'
-                  : (k && k.s) ? k.s
-                  : 'masa';
+            sonSahne = (typeof k === 'object' && k) ? k : BOS;
             return (typeof k === 'string' && k) ? [{ rawValue: k }] : [];
         } },
         kaydet: (k) => islenen.push(k),
         goster: (tur, dur, kod, ek) => uyarilar.push({ tur, dur, ek }),
         bipOkunamadi: () => sesler.push('okunamadi'),
+        okunamadiKaydet: () => kayitlar.push('okunamadi'),
         document: { createElement: () => tuval },
-        // videoWidth/Height olmadan icerikVar olcum yapmadan cikar
         $: () => ({ videoWidth: 1280, videoHeight: 960,
             set textContent(v) { notlar.push(v); }, get textContent() { return ''; } }),
         setTimeout: () => 0, console, String, Math, Date, Promise, Object, Array,
-        Uint8ClampedArray
+        Error, Uint8ClampedArray
     };
     const fn = new Function('__k', 'with(__k){' + govde
-        + '\nakis = __akis; tarayici = __tarayici;\nreturn tara;}')(
+        + "\nakis = __akis; tarayici = __tarayici; zx = __zx;\nreturn tara;}")(
         new Proxy(g, { has: () => true, get: (o, p) => (p in o ? o[p] : undefined),
             set: (o, p, v) => { o[p] = v; return true; } }));
     return { calistir: async () => { for (let k = 0; k < kareler.length; k++) await fn(); },
-             islenen, notlar, uyarilar, sesler };
+             islenen, notlar, uyarilar, sesler, kayitlar };
 }
 
 (async function () {
@@ -252,7 +246,7 @@ function kamera(kareler) {
 
     /* Çekilip tekrar gösterilse de aynı etiket sayılmamalı */
     {
-        const k = kamera(['A', 'A', null, null, null, null, null, null, 'A', 'A', 'A']);
+        const k = kamera(['A', 'A', BOS, BOS, BOS, BOS, 'A', 'A', 'A']);
         await k.calistir();
         ol('çekilip tekrar gösterilen aynı etiket işlenmiyor',
             k.islenen.length === 1, k.islenen.length + ' işlem');
@@ -291,76 +285,54 @@ function kamera(kareler) {
             k.notlar[k.notlar.length - 1]);
     }
 
-    console.log('\nC) okunamayan etiket');
+    console.log('\nC) okunamayan etiket — kararı ZXing veriyor');
 
-    /* Kamera açılıp boşluğa bakarken HİÇ uyarmamalı — sahadaki asıl
-       şikâyet buydu: "boşlukta daha DMC görmeden okunamadı diyor". */
+    /* Kadrajda DMC YOK: kamera ne kadar boşluğa bakarsa baksın sessiz.
+       Sahadaki üç şikâyet de buydu: "boşlukta okunamadı diyor". */
     {
-        const k = kamera(Array(100).fill(ETIKET));
+        const k = kamera(Array(120).fill(BOS));
         await k.calistir();
-        ol('hiç okuma olmadan uyarı çıkmıyor', k.uyarilar.length === 0,
-            k.uyarilar.length + ' uyarı / 100 kare');
+        ol('kadrajda DMC yokken uyarı çıkmıyor', k.uyarilar.length === 0,
+            k.uyarilar.length + ' uyarı / 120 kare');
     }
 
-    /* Bir okuma yapıldıktan sonra çözülemeyen etiket → uyarı */
+    /* DMC VAR ama çözülemiyor → uyarı + kayıt */
     {
-        const k = kamera(['K1'].concat(Array(80).fill(ETIKET)));
+        const k = kamera(Array(30).fill(BOZUK));
         await k.calistir();
         const u = k.uyarilar[0];
-        ol('okunamayan etiket uyarı veriyor', k.uyarilar.length === 1 && u,
+        ol('bozuk etiket uyarı veriyor', k.uyarilar.length === 1 && !!u,
             u ? u.dur : 'uyarı yok');
         ol('uyarıda sebep ipucu var',
             !!u && /silik/i.test(u.ek) && /yamuk/i.test(u.ek), u && u.ek);
         ol('okunamadı sesi çaldı', k.sesler.length === 1);
+        ol('okunamadı kaydı yazıldı', k.kayitlar.length === 1);
     }
 
-    /* Sahada yanlış alarm üreten üç sahne: hiçbiri uyarmamalı */
-    // Basina bir okuma konuyor ki desen olcutu GERCEKTEN sinansin;
-    // yoksa "hic okuma yok" kurali testi zaten sessiz gecirirdi.
+    /* Uyarı art arda çalmamalı (sessizlik penceresi) */
     {
-        const k = kamera(['K1'].concat(Array(120).fill(MASA)));
-        await k.calistir();
-        ol('boş tezgâhta uyarı çıkmıyor', k.uyarilar.length === 0,
-            k.uyarilar.length + ' uyarı');
-    }
-    {
-        const k = kamera(['K1'].concat(Array(120).fill(KAGIT)));
-        await k.calistir();
-        ol('beyaz kâğıt/ambalajda uyarı çıkmıyor', k.uyarilar.length === 0,
-            k.uyarilar.length + ' uyarı');
-    }
-    {
-        const k = kamera(['K1'].concat(Array(120).fill(KARANLIK)));
-        await k.calistir();
-        ol('karanlıkta uyarı çıkmıyor', k.uyarilar.length === 0,
-            k.uyarilar.length + ' uyarı');
-    }
-
-    /* Uyarı sonrası sessizlik penceresi: art arda çalmamalı */
-    {
-        const k = kamera(['K1'].concat(Array(120).fill(ETIKET)));
+        const k = kamera(Array(200).fill(BOZUK));
         await k.calistir();
         ol('uyarı art arda tekrarlamıyor', k.uyarilar.length === 1,
-            k.uyarilar.length + ' uyarı / 120 kare');
+            k.uyarilar.length + ' uyarı / 200 kare');
     }
 
-    /* BAŞARILI okumadan hemen sonra uyarı gelmemeli — sahada "hem okuyor
-       hem okunamadı diyor" şikâyeti tam buydu: parça çekilirken kamera
-       tezgâhı görüyor, uyarı "YENİ KOD" yazısını eziyordu. */
+    /* Tek tük bozuk kare uyarı üretmemeli (ardışık olmalı) */
     {
-        const k = kamera(['K1'].concat(Array(30).fill(ETIKET)));
+        const k = kamera([BOZUK, BOS, BOZUK, BOS, BOZUK, BOS, BOZUK, BOS,
+                          BOZUK, BOS, BOZUK, BOS, BOZUK, BOS]);
         await k.calistir();
-        ol('okumadan hemen sonra uyarı yok',
-            k.islenen.length === 1 && k.uyarilar.length === 0,
+        ol('tek tük bozuk kare uyarı üretmiyor', k.uyarilar.length === 0,
             k.uyarilar.length + ' uyarı');
     }
 
-    /* Ama okuma sonrası UZUN süre çözülemezse yine uyarmalı */
+    /* ZXing, BarcodeDetector'ın kaçırdığını çözerse KAYIT olmalı */
     {
-        const k = kamera(['K1'].concat(Array(80).fill(ETIKET)));
+        const k = kamera([{ zx: 'ZX-KOD-1' }, { zx: 'ZX-KOD-1' }]);
         await k.calistir();
-        ol('okuma sonrası uzun süre çözülemezse uyarıyor',
-            k.uyarilar.length === 1, k.uyarilar.length + ' uyarı');
+        ol('ZXing çözünce kod kaydediliyor (kaçan okuma kurtarılıyor)',
+            k.islenen.join(',') === 'ZX-KOD-1', k.islenen.join(','));
+        ol('ZXing çözümü uyarı üretmiyor', k.uyarilar.length === 0);
     }
 
     console.log('\nD) sesli anons Türkçe');
@@ -396,19 +368,6 @@ function kamera(kareler) {
         // Havuza girseydi İKİNCİ okunamayan etiket "mükerrer" görünürdü.
         ol('havuza girmedi (ikincisi mükerrer görünmesin)',
             !api.bilinen.has('(okunamadı)'));
-    }
-
-    /* Elle "⚠ Okunamadı" düğmesi — tahmine güvenmeyen kesin yol */
-    {
-        const { api, yazilan, ekran, dom } = ortam(YAZDI);
-        dom('#okunamadiEl').onclick();
-        ol('düğme ekranda OKUNAMADI gösteriyor', /OKUNAMADI/.test(ekran.dur),
-            ekran.dur);
-        await bekle(40);
-        ol('düğme kaydı sunucuya yazıyor',
-            yazilan.length === 1 && yazilan[0] === '(okunamadı)',
-            yazilan.join(','));
-        ol('düğme kaydı da havuza girmiyor', !api.bilinen.has('(okunamadı)'));
     }
 
     /* Sunucudaki okunamadı kayıtları havuza ALINMAMALI */

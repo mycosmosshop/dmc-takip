@@ -111,10 +111,6 @@
     <button class="ikinci" id="kamera" style="width:100%">📷 Kamerayı başlat</button>
     <video id="video" playsinline muted></video>
     <div class="dip" id="kameraNot"></div>
-    <!-- Otomatik tespit tahmine dayali ve yaniliyor; kesin yol operatorun
-         kendisi. Etiket okunmuyorsa tek dokunusla kayda girer. -->
-    <button class="ikinci tehlike" id="okunamadiEl"
-            style="width:100%;margin-top:8px">⚠ Okunamadı olarak kaydet</button>
   </div>
 
   <div class="kart">
@@ -722,14 +718,6 @@ if (!sesAcik) { $('#sesAc').textContent = '🔇'; $('#sesAc').classList.add('kap
 
 $('#kaydet').onclick = () => kaydet($('#elle').value);
 $('#elle').addEventListener('keydown', (e) => { if (e.key === 'Enter') kaydet($('#elle').value); });
-
-/* Elle bildirim: tahmin yok, operator soyluyor. */
-$('#okunamadiEl').onclick = function () {
-  goster('bekle', '⚠ OKUNAMADI', '',
-    'Kayda geçti — silik/karalı/eksik ya da yamuk etiket');
-  bipOkunamadi();
-  okunamadiKaydet();
-};
 $('#yenile').onclick = listele;
 
 /* Telefon eski surumu onbellekten aciyorsa anlasilsin: sunucudan gelen
@@ -745,69 +733,62 @@ try {
       cozemiyor; o durumda elle giris devrede kalir. ── */
 let akis = null, tarayici = null, sonKod = '', ayniUyari = 0;
 
-/* Etiket tutuluyor ama COZULEMIYOR mu?  BarcodeDetector cozemedigini
-   bos dizi olarak donduruyor; "etiket yok" ile "etiket okunamiyor" ayni
-   gorunuyor. Ayrimi kareye BAKARAK yapiyoruz.
+/* "DMC var ama cozulemiyor" ayrimi.
 
-   Duz kontrast (varyans) YETMEDI: masa dokusu, zemin, golge ve dusuk isik
-   gurultusu de kontrast uretiyor, kamera bosa bakarken uyari calmaya
-   basliyordu. Simdi IKI kosul birden araniyor:
-     1) KESKIN GECIS — DMC hucreleri birkac pikselde bir siyah-beyaz
-        atlar; masa/duvar yumusak gecislidir.
-     2) IKI UCLU DAGILIM — etikette hem koyu hem acik piksel BOL olur;
-        beyaz kagit ya da golgeli masa tek uca yigilir ve gecemez.
+   BarcodeDetector cozemedigini bos dizi olarak donduruyor: "etiket yok"
+   ile "etiket okunamiyor" ayni gorunuyor. Kareye BAKARAK tahmin etmek
+   (kontrast, keskin gecis, iki uclu dagilim) sahada UC KEZ yanildi — bos
+   tezgahta uyari caliyordu. Bu yuzden tahmin birakildi.
 
-   Sahada ayar: uyari bos yere cikiyorsa GECIS_ORAN / UC_ORAN buyutulur,
-   gercekten okunamayan etikette hic cikmiyorsa kucultulur. */
-const GECIS_ESIK = 45;         // komsu piksel parlaklik farki
-const GECIS_ORAN = 0.09;       // kirpilan alanda keskin gecis orani
-const UC_ORAN = 0.12;          // koyu VE acik piksellerin her biri en az
-const OKUNAMADI_KARE = 38;     // ~6 sn (160 ms x 38)
-const OKUNAMADI_ARA = 60;      // uyari sonrasi ~10 sn sessizlik
-const OKUMA_SONRASI = 25;      // BASARILI okumadan sonra ~4 sn sessizlik
-let okunamadiSayac = 0, okunamadiBekle = 0, olcuKare = null;
-let sonOlcum = '';             // esik ayari icin: son olculen degerler
-/* Kamera acilip bosluga bakarken uyari caliyordu. Otomatik uyari artik
-   YALNIZCA en az bir etiket okunduktan sonra devrede: operator o noktada
-   calisma modundadir, cozulemeyen kare anlamlidir. Once elle dugme var. */
-let okumaOldu = false;
+   ZXing'in DataMatrix cozucusu ayrimi hata TURUYLE zaten veriyor. Olculdu:
+     bos tezgah (dokulu/gradyanli) -> NotFoundException  = etiket YOK
+     karali / silik / kosesi kopuk -> ChecksumException  = VAR, OKUNAMIYOR
+     temiz / bulanik etiket        -> COZULDU
+   Ayrica BarcodeDetector'in kacirdigini yakaliyor (karalanmis bir etiketi
+   cozdu), o yuzden once cozum denenir: cozerse KAYIT, cozemezse uyari. */
+const ZX_CDN = 'https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js';
+const ZX_ADIM = 2;             // her 2. karede coz dene (~320 ms)
+const ZX_UYARI = 5;            // ardisik "okunamiyor" (~1.6 sn) sonra uyar
+const UYARI_ARA_MS = 6000;     // uyari sonrasi sessizlik
+let zx = null, zxKare = 0, okunamiyorSayac = 0, uyariAn = 0;
 
-function icerikVar(v) {
+async function zxYukle() {
+  if (zx) return true;
   try {
-    const G = 160, Y = 120;
-    if (!olcuKare) {
-      olcuKare = document.createElement('canvas');
-      olcuKare.width = G; olcuKare.height = Y;
+    if (!window.ZXing) {
+      await new Promise((ok, hata) => {
+        const s = document.createElement('script');
+        s.src = ZX_CDN;
+        s.onload = ok;
+        s.onerror = () => hata(new Error('indirilemedi'));
+        document.head.appendChild(s);
+      });
     }
-    const gw = v.videoWidth || 0, gh = v.videoHeight || 0;
-    if (!gw || !gh) return false;
-    const c = olcuKare.getContext('2d', { willReadFrequently: true });
-    // Merkezden kirp: etiket cerceveye ortalanir, kenardaki masa olcumu
-    // seyreltmesin — ve kucultme orani dustugu icin hucreler kaybolmasin.
-    const kw = gw * 0.5, kh = gh * 0.5;
-    c.drawImage(v, (gw - kw) / 2, (gh - kh) / 2, kw, kh, 0, 0, G, Y);
-    const p = c.getImageData(0, 0, G, Y).data;
-    let keskin = 0, gecis = 0, koyu = 0, acik = 0;
-    for (let y = 0; y < Y; y++) {
-      let onceki = -1;
-      for (let x = 0; x < G; x++) {
-        const i = (y * G + x) * 4;
-        const g = (p[i] * 299 + p[i + 1] * 587 + p[i + 2] * 114) / 1000;
-        if (g < 80) koyu++; else if (g > 175) acik++;
-        if (onceki >= 0) {
-          gecis++;
-          if (Math.abs(g - onceki) > GECIS_ESIK) keskin++;
-        }
-        onceki = g;
-      }
+    zx = { Z: window.ZXing, okuyucu: new window.ZXing.DataMatrixReader(), tuval: null };
+    return true;
+  } catch (e) {
+    zx = null;
+    return false;
+  }
+}
+
+/* Donus: 'cozuldu' (kod ile) · 'yok' · 'okunamiyor' */
+async function zxDene(v) {
+  if (!zx) return { durum: 'yok' };
+  try {
+    if (!zx.tuval) {
+      zx.tuval = document.createElement('canvas');
+      zx.tuval.width = 640; zx.tuval.height = 480;
     }
-    if (!gecis) return false;
-    // Her IKI uc de dolu olmali: tek uca yigilan sahne etiket degildir.
-    const uc = Math.min(koyu, acik) / (G * Y);
-    const gr = keskin / gecis;
-    sonOlcum = 'g:' + gr.toFixed(2) + ' u:' + uc.toFixed(2);
-    return gr > GECIS_ORAN && uc > UC_ORAN;
-  } catch (e) { return false; }   // olcemezsek UYARMA: bos yere calmasin
+    zx.tuval.getContext('2d').drawImage(v, 0, 0, 640, 480);
+    const bmp = new zx.Z.BinaryBitmap(new zx.Z.HybridBinarizer(
+      new zx.Z.HTMLCanvasElementLuminanceSource(zx.tuval)));
+    const r = zx.okuyucu.decode(bmp);
+    return { durum: 'cozuldu', kod: String(r.getText() || '').trim() };
+  } catch (e) {
+    // NotFound = kadrajda DMC yok. Checksum/Format = DMC VAR, bozuk.
+    return { durum: (e instanceof zx.Z.NotFoundException) ? 'yok' : 'okunamiyor' };
+  }
 }
 $('#kamera').onclick = async function () {
   if (akis) {
@@ -831,9 +812,15 @@ $('#kamera').onclick = async function () {
     v.srcObject = akis; v.style.display = 'block'; await v.play();
     this.textContent = '⏹ Kamerayı durdur';
     sonKod = ''; ayniUyari = 0;     // yeniden baslatma kilidi sifirlar
-    okunamadiSayac = 0; okunamadiBekle = 0; okumaOldu = false;
+    okunamiyorSayac = 0; zxKare = 0; uyariAn = 0;
     $('#kameraNot').textContent = 'Etiketi çerçeveye tutun · çözülen: ' + istenen.join(', ');
     tara();
+    // Cozucu tembel yukleniyor: kamera acilmadan 200 KB indirilmesin.
+    // Yuklenemezse sessizce yanlis calismasin — ekranda yazsin.
+    zxYukle().then((ok) => {
+      if (!ok) $('#kameraNot').textContent =
+        'Bağlantı yok: okunamayan etiket uyarısı devre dışı (okuma çalışıyor).';
+    });
   } catch (e) {
     $('#kameraNot').textContent = 'Kamera açılamadı: ' + String(e.message || e).slice(0, 80);
   }
@@ -844,28 +831,34 @@ async function tara() {
   try {
     const bulunan = await tarayici.detect($('#video'));
     if (!bulunan.length) {
-      // Kod cozulemedi. Kameraya bir sey tutuluyorsa sayac isler; bos
-      // sahnede islemez ki operator sirada beklerken bosuna calmasin.
-      if (!okumaOldu) okunamadiSayac = 0;     // henuz hic okuma yok: sessiz
-      else if (okunamadiBekle > 0) okunamadiBekle--;
-      else if (!icerikVar($('#video'))) okunamadiSayac = 0;
-      else if (++okunamadiSayac >= OKUNAMADI_KARE) {
-        okunamadiSayac = 0; okunamadiBekle = OKUNAMADI_ARA;
-        goster('bekle', '⚠ OKUNAMADI', '',
-          'Silik/karalı/eksik ya da yamuk olabilir — yaklaştırıp düz tutun');
-        bipOkunamadi();
-        okunamadiKaydet();          // listede ve Excel'de iz biraksin
-        $('#kameraNot').textContent =
-          'Okunamadı — açıyı değiştirin, ışığı artırın ya da elle yazın.'
-          + (sonOlcum ? '  [' + sonOlcum + ']' : '');
+      // BarcodeDetector cozemedi. ZXing hem ikinci bir sans verir hem de
+      // "etiket yok" / "etiket bozuk" ayrimini yapar.
+      if (zx && ++zxKare % ZX_ADIM === 0) {
+        const s = await zxDene($('#video'));
+        if (s.durum === 'cozuldu') {
+          okunamiyorSayac = 0;
+          if (s.kod && s.kod !== sonKod) {
+            sonKod = s.kod; ayniUyari = 0;
+            $('#kameraNot').textContent = 'Okundu: ' + s.kod.slice(0, 28)
+              + (s.kod.length > 28 ? '…' : '');
+            kaydet(s.kod);
+          }
+        } else if (s.durum === 'yok') {
+          okunamiyorSayac = 0;              // kadrajda DMC yok: sessiz
+        } else if (Date.now() - uyariAn < UYARI_ARA_MS) {
+          okunamiyorSayac = 0;              // az once uyarildi
+        } else if (++okunamiyorSayac >= ZX_UYARI) {
+          okunamiyorSayac = 0; uyariAn = Date.now();
+          goster('bekle', '⚠ OKUNAMADI', '',
+            'Silik/karalı/eksik ya da yamuk etiket — kayda geçti');
+          bipOkunamadi();
+          okunamadiKaydet();                // listede ve Excel'de iz biraksin
+          $('#kameraNot').textContent =
+            'Okunamadı — açıyı değiştirip tekrar deneyin ya da elle yazın.';
+        }
       }
     } else {
-      // Okumadan SONRA da uyari caliyordu: operator parcayi cekerken
-      // kamera masayi/eli goruyor, sayac isliyor ve "YENI KOD" yazisi
-      // "OKUNAMADI" ile eziliyordu. Basarili okuma kisa bir sessizlik
-      // penceresi aciyor.
-      okunamadiSayac = 0; okunamadiBekle = OKUMA_SONRASI;
-      okumaOldu = true;
+      okunamiyorSayac = 0;
       const kod = String(bulunan[0].rawValue || '').trim();
       // Kilit YALNIZCA farkli bir kod gorulunce acilir. Ayni etiket
       // kamerada ne kadar kalirsa kalsin, cekilip tekrar gosterilse bile
