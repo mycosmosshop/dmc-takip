@@ -749,8 +749,13 @@ let akis = null, tarayici = null, sonKod = '', ayniUyari = 0;
 const ZX_CDN = 'https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js';
 const ZX_ADIM = 2;             // her 2. karede coz dene (~320 ms)
 const ZX_UYARI = 5;            // ardisik "okunamiyor" (~1.6 sn) sonra uyar
+/* Ayni koddan IKINCI bir parca gelirse mukerrer sayilmali. Kilit, etiket
+   kadrajdan CIKINCA acilir: ardisik bu kadar "kadrajda DMC yok" olcumu.
+   Kucultmek sahte mukerrer (ayni etiket iki kez), buyutmek KACIRILAN
+   mukerrer uretir — kacirmak daha pahali oldugu icin uzun tutulmadi. */
+const KILIT_BOS = 4;           // ~1.3 sn (ZX_ADIM=2 ile 8 kare)
 const UYARI_ARA_MS = 6000;     // uyari sonrasi sessizlik
-let zx = null, zxKare = 0, okunamiyorSayac = 0, uyariAn = 0;
+let zx = null, zxKare = 0, okunamiyorSayac = 0, uyariAn = 0, bosOlcum = 0;
 
 async function zxYukle() {
   if (zx) return true;
@@ -812,7 +817,7 @@ $('#kamera').onclick = async function () {
     v.srcObject = akis; v.style.display = 'block'; await v.play();
     this.textContent = '⏹ Kamerayı durdur';
     sonKod = ''; ayniUyari = 0;     // yeniden baslatma kilidi sifirlar
-    okunamiyorSayac = 0; zxKare = 0; uyariAn = 0;
+    okunamiyorSayac = 0; zxKare = 0; uyariAn = 0; bosOlcum = 0;
     $('#kameraNot').textContent = 'Etiketi çerçeveye tutun · çözülen: ' + istenen.join(', ');
     tara();
     // Cozucu tembel yukleniyor: kamera acilmadan 200 KB indirilmesin.
@@ -833,10 +838,13 @@ async function tara() {
     if (!bulunan.length) {
       // BarcodeDetector cozemedi. ZXing hem ikinci bir sans verir hem de
       // "etiket yok" / "etiket bozuk" ayrimini yapar.
+      // ZXing yuklenmediyse tek olcut bos kare: esik iki kati alinir
+      // cunku ZXing'li yolda olcum her 2. karede yapiliyor.
+      if (!zx && ++bosOlcum >= KILIT_BOS * 2) { sonKod = ''; ayniUyari = 0; bosOlcum = 0; }
       if (zx && ++zxKare % ZX_ADIM === 0) {
         const s = await zxDene($('#video'));
         if (s.durum === 'cozuldu') {
-          okunamiyorSayac = 0;
+          okunamiyorSayac = 0; bosOlcum = 0;
           if (s.kod && s.kod !== sonKod) {
             sonKod = s.kod; ayniUyari = 0;
             $('#kameraNot').textContent = 'Okundu: ' + s.kod.slice(0, 28)
@@ -845,24 +853,33 @@ async function tara() {
           }
         } else if (s.durum === 'yok') {
           okunamiyorSayac = 0;              // kadrajda DMC yok: sessiz
-        } else if (Date.now() - uyariAn < UYARI_ARA_MS) {
-          okunamiyorSayac = 0;              // az once uyarildi
-        } else if (++okunamiyorSayac >= ZX_UYARI) {
-          okunamiyorSayac = 0; uyariAn = Date.now();
-          goster('bekle', '⚠ OKUNAMADI', '',
-            'Silik/karalı/eksik ya da yamuk etiket — kayda geçti');
-          bipOkunamadi();
-          okunamadiKaydet();                // listede ve Excel'de iz biraksin
-          $('#kameraNot').textContent =
-            'Okunamadı — açıyı değiştirip tekrar deneyin ya da elle yazın.';
+          // Parca cekildi: ayni koddan IKINCI parca gelirse mukerrer
+          // sayilabilsin diye kilit acilir.
+          if (++bosOlcum >= KILIT_BOS) { sonKod = ''; ayniUyari = 0; }
+        } else {
+          // 'okunamiyor': etiket HALA kadrajda — kilit ACILMAZ, yoksa ayni
+          // etiket titrek okuma yuzunden ikinci kez sayilirdi.
+          bosOlcum = 0;
+          if (Date.now() - uyariAn < UYARI_ARA_MS) {
+            okunamiyorSayac = 0;            // az once uyarildi
+          } else if (++okunamiyorSayac >= ZX_UYARI) {
+            okunamiyorSayac = 0; uyariAn = Date.now();
+            goster('bekle', '⚠ OKUNAMADI', '',
+              'Silik/karalı/eksik ya da yamuk etiket — kayda geçti');
+            bipOkunamadi();
+            okunamadiKaydet();              // listede ve Excel'de iz biraksin
+            $('#kameraNot').textContent =
+              'Okunamadı — açıyı değiştirip tekrar deneyin ya da elle yazın.';
+          }
         }
       }
     } else {
-      okunamiyorSayac = 0;
+      okunamiyorSayac = 0; bosOlcum = 0;
       const kod = String(bulunan[0].rawValue || '').trim();
-      // Kilit YALNIZCA farkli bir kod gorulunce acilir. Ayni etiket
-      // kamerada ne kadar kalirsa kalsin, cekilip tekrar gosterilse bile
-      // TEK KEZ islenir — sahada her etiket bir kez sayilir.
+      // Ayni etiket kamerada DURDUGU SURECE tek kez islenir. Kilit iki
+      // yolla acilir: farkli bir kod gorulunce, ya da etiket kadrajdan
+      // CIKINCA (bkz. KILIT_BOS) — cikip ayni kod yeniden gelirse bu
+      // AYRI BIR PARCADIR ve mukerrer sayilmasi gerekir.
       if (kod && kod !== sonKod) {
         sonKod = kod;
         ayniUyari = 0;
@@ -872,7 +889,7 @@ async function tara() {
       } else if (kod && kod === sonKod && ++ayniUyari === 12) {
         // ~2 sn ayni etiket: operator "okumadi mi?" diye beklemesin
         $('#kameraNot').textContent =
-          'Bu etiket okundu — sıradaki etiketi gösterin.';
+          'Bu etiket okundu — parçayı çekin, sıradakini gösterin.';
       }
     }
   } catch (e) {}

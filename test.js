@@ -280,9 +280,37 @@ function kamera(kareler) {
     {
         const k = kamera(Array(20).fill('UZUN-A'));
         await k.calistir();
-        ol('“sıradaki etiketi gösterin” uyarısı çıkıyor',
-            k.notlar.some((x) => /sıradaki etiketi/.test(x)),
+        ol('“parçayı çekin, sıradakini gösterin” uyarısı çıkıyor',
+            k.notlar.some((x) => /sıradakini gösterin/.test(x)),
             k.notlar[k.notlar.length - 1]);
+    }
+
+    /* GERCEK MUKERRER: ayni koddan IKINCI parca. Etiket kadrajdan
+       cikip ayni kod yeniden gelirse AYRI bir parcadir — sayilmali.
+       Bu kacarsa uygulamanin butun amaci kacar. */
+    {
+        const k = kamera(['A'].concat(Array(8).fill(BOS), ['A']));
+        await k.calistir();
+        ol('parça çekilip aynı kod gelince mükerrer sayılıyor',
+            k.islenen.join(',') === 'A,A', k.islenen.join(','));
+    }
+
+    /* Ama KISA boşluk kilidi açmamalı — kamera bir kareyi kaçırdı diye
+       aynı etiket ikinci kez sayılmasın. */
+    {
+        const k = kamera(['A', BOS, BOS, 'A']);
+        await k.calistir();
+        ol('kısa boşluk aynı etiketi ikinci kez saymıyor',
+            k.islenen.length === 1, k.islenen.join(','));
+    }
+
+    /* Etiket kadrajda ama titrek okunuyorsa (ZXing "okunamiyor" diyor)
+       kilit açılmamalı: sahada 5 sahte mükerrer bundan çıkmıştı. */
+    {
+        const k = kamera(['A'].concat(Array(12).fill(BOZUK), ['A']));
+        await k.calistir();
+        ol('etiket kadrajdayken titrek okuma sahte mükerrer üretmiyor',
+            k.islenen.length === 1, k.islenen.join(','));
     }
 
     console.log('\nC) okunamayan etiket — kararı ZXing veriyor');
