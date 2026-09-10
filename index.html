@@ -657,7 +657,7 @@ $('#yenile').onclick = listele;
 
 /* ── Kamera: BarcodeDetector (Android Chrome). iOS Safari Data Matrix
       cozemiyor; o durumda elle giris devrede kalir. ── */
-let akis = null, tarayici = null, sonKod = '', bosKare = 0;
+let akis = null, tarayici = null, sonKod = '', ayniUyari = 0;
 $('#kamera').onclick = async function () {
   if (akis) {
     akis.getTracks().forEach((t) => t.stop());
@@ -679,6 +679,7 @@ $('#kamera').onclick = async function () {
     const v = $('#video');
     v.srcObject = akis; v.style.display = 'block'; await v.play();
     this.textContent = '⏹ Kamerayı durdur';
+    sonKod = ''; ayniUyari = 0;     // yeniden baslatma kilidi sifirlar
     $('#kameraNot').textContent = 'Etiketi çerçeveye tutun · çözülen: ' + istenen.join(', ');
     tara();
   } catch (e) {
@@ -692,17 +693,20 @@ async function tara() {
     const bulunan = await tarayici.detect($('#video'));
     if (bulunan.length) {
       const kod = String(bulunan[0].rawValue || '').trim();
-      bosKare = 0;
-      // Ayni etiket kamera onunde DURDUGU SURECE bir kez islenir.
-      // Sure temelli olsaydi (eski hal) etiketi uzun tutan operator
-      // ayni kodu ikinci kez kaydeder ve SAHTE mukerrer alarmi alirdi.
+      // Kilit YALNIZCA farkli bir kod gorulunce acilir. Ayni etiket
+      // kamerada ne kadar kalirsa kalsin, cekilip tekrar gosterilse bile
+      // TEK KEZ islenir — sahada her etiket bir kez sayilir.
       if (kod && kod !== sonKod) {
         sonKod = kod;
+        ayniUyari = 0;
+        $('#kameraNot').textContent = 'Okundu: ' + kod.slice(0, 28)
+          + (kod.length > 28 ? '…' : '');
         kaydet(kod);
+      } else if (kod && kod === sonKod && ++ayniUyari === 12) {
+        // ~2 sn ayni etiket: operator "okumadi mi?" diye beklemesin
+        $('#kameraNot').textContent =
+          'Bu etiket okundu — sıradaki etiketi gösterin.';
       }
-    } else if (++bosKare >= 4) {
-      // Etiket cekildi (~0.6 sn): siradaki etiket okunabilir
-      sonKod = '';
     }
   } catch (e) {}
   if (akis) setTimeout(tara, 160);   // gorur gormez islesin
