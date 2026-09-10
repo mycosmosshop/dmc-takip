@@ -39,12 +39,19 @@
   .ikinci{height:42px;padding:0 14px;background:#fff;border-color:var(--kenar);color:var(--metin)}
   .tehlike{background:#fff;border-color:#f0c9c5;color:var(--hata)}
   #video{width:100%;border-radius:10px;background:#000;display:none;aspect-ratio:4/3;object-fit:cover}
-  #sonuc{display:none;border-radius:12px;padding:14px;margin-bottom:12px;
-         border:1px solid;text-align:center}
-  #sonuc .kod{font:700 22px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;
-              word-break:break-all;margin:6px 0}
-  #sonuc .dur{font-size:15px;font-weight:700}
-  #sonuc .ek{font-size:12.5px;opacity:.85;margin-top:4px}
+  /* Sonuc kutusu icerik degisince buyuyup kamerayi asagi itiyordu.
+     Artik HEP gorunur ve SABIT yukseklikte: kamera hic oynamaz. */
+  #sonuc{border-radius:11px;padding:8px 10px;margin-bottom:10px;
+         border:1px solid var(--kenar);background:var(--kart);
+         text-align:center;height:74px;overflow:hidden;
+         display:flex;flex-direction:column;align-items:center;
+         justify-content:center;gap:1px}
+  #sonuc .kod{font:700 17px/1.15 ui-monospace,SFMono-Regular,Menlo,monospace;
+              width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #sonuc .dur{font-size:13.5px;font-weight:800;letter-spacing:.02em}
+  #sonuc .ek{font-size:11px;opacity:.85;width:100%;white-space:nowrap;
+             overflow:hidden;text-overflow:ellipsis}
+  #sonuc.bos{color:var(--soluk)}
   .ok{background:var(--okZemin);border-color:#b7e0c8;color:var(--ok)}
   .hata{background:var(--hataZemin);border-color:#f4c7c3;color:var(--hata)}
   .bekle{background:var(--uyariZemin);border-color:#f0dcae;color:var(--uyari)}
@@ -96,7 +103,7 @@
 
   <!-- Sonuc ve kamera EN USTTE: operator etiketi tutarken sonucu ayni
        ekranda gormeli, kaydirmak zorunda kalmamali. -->
-  <div id="sonuc"><div class="dur"></div><div class="kod"></div><div class="ek"></div></div>
+  <div id="sonuc" class="bos"><div class="dur">Kod bekleniyor</div><div class="kod"></div><div class="ek">Kamerayı başlatın ya da elle yazın</div></div>
 
   <div class="kart">
     <button class="ikinci" id="kamera" style="width:100%">📷 Kamerayı başlat</button>
@@ -271,7 +278,6 @@ function bip(mukerrer) {
 
 function goster(tur, dur, kod, ek) {
   sonuc.className = tur;
-  sonuc.style.display = 'block';
   sonuc.querySelector('.dur').textContent = dur;
   sonuc.querySelector('.kod').textContent = kod || '';
   sonuc.querySelector('.ek').textContent = ek || '';
@@ -411,7 +417,12 @@ function csvUret(kayitlar) {
             d.toLocaleDateString('tr-TR'), d.toLocaleTimeString('tr-TR')]
       .map((h) => '"' + String(h).replace(/"/g, '""') + '"').join(';');
   });
-  return '﻿' + bas.join(';') + '\n' + satir.join('\n');
+  // Excel'in Turkce surumu BOM'a ragmen ayraci bazen virgul sanip tum
+  // satiri tek hucreye basiyor ve kodlamayi da kaciriyordu. sep=; ilk
+  // satirda ayraci ACIKCA bildirir; CRLF de Excel'in bekledigi satir sonu.
+  const SS = '\r\n';
+  return '﻿' + 'sep=;' + SS + bas.join(';') + SS
+    + satir.join(SS) + SS;
 }
 function dosyaAdi(n) {
   const d = new Date();
@@ -462,7 +473,10 @@ async function sil(kosul, etiket) {
     sayac = { t: 0, y: 0, m: 0 };
     $('#sT').textContent = 0; $('#sY').textContent = 0; $('#sM').textContent = 0;
     $('#hepsiSec').checked = false;
-    sonuc.style.display = 'none';
+    sonuc.className = 'bos';
+    sonuc.querySelector('.dur').textContent = 'Kod bekleniyor';
+    sonuc.querySelector('.kod').textContent = '';
+    sonuc.querySelector('.ek').textContent = 'Kamerayı başlatın ya da elle yazın';
     listele();
   } catch (e) {
     const m = String(e.message || e);
