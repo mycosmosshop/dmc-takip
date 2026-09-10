@@ -83,23 +83,40 @@ const YAZDI = async () => ({ ok: true, status: 201, json: async () => [{}], text
 const bas = JS.indexOf('let akis = null');
 const govde = JS.slice(bas, JS.indexOf('if (akis) setTimeout(tara', bas)) + '}';
 
-/* kareler: 'KOD' -> cozuldu · false -> bos sahne · true -> icerik var ama
-   cozulemiyor (silik/karali/yamuk etiket). */
+/* kareler elemanlari:
+     'KOD'    -> BarcodeDetector cozdu
+     ETIKET   -> kadrajda etiket var ama cozulemiyor (silik/karali/yamuk)
+     MASA     -> bos tezgah: yumusak orta tonlar
+     KAGIT    -> beyaz kagit/ambalaj: hep acik
+     KARANLIK -> dusuk isik: hep koyu
+   Son ucu sahada YANLIS ALARM ureten sahneler; icerikVar bunlari elemeli. */
+const ETIKET = true, MASA = false;
+const KAGIT = { s: 'kagit' }, KARANLIK = { s: 'karanlik' };
+
 function kamera(kareler) {
     const islenen = [], notlar = [], uyarilar = [], sesler = [];
-    let i = 0, sonKare = null;
+    let i = 0, sahne = 'masa';
+    const G = 160, Y = 120;
     const tuval = {
         width: 0, height: 0,
         getContext: () => ({
             drawImage() {},
             getImageData: () => {
-                // Yuksek kontrast = kameraya bir sey tutuluyor.
-                // Duz zemin = bos sahne. icerikVar GERCEKTEN hesaplasin.
-                const d = new Uint8ClampedArray(64 * 48 * 4);
+                const d = new Uint8ClampedArray(G * Y * 4);
                 for (let k = 0; k < d.length; k += 4) {
-                    const v = sonKare === true
-                        ? (Math.floor(k / 32) % 2 ? 245 : 12)  // 8 piksellik bloklar
-                        : 128 + ((k / 4) % 3);                 // neredeyse duz
+                    const px = k / 4, x = px % G, y = (px / G) | 0;
+                    let v;
+                    if (sahne === 'etiket') {
+                        // DMC hucreleri: 4 piksellik siyah/beyaz bloklar
+                        v = ((((x / 4) | 0) + ((y / 4) | 0)) % 2) ? 240 : 15;
+                    } else if (sahne === 'kagit') {
+                        v = 225 + (px % 9);              // beyaz, hafif gurultu
+                    } else if (sahne === 'karanlik') {
+                        v = 25 + (px % 9);               // koyu, hafif gurultu
+                    } else {
+                        // Tezgah: yumusak degrade + hafif doku (keskin gecis yok)
+                        v = 105 + ((x + y) % 11) + Math.sin(x / 9) * 6;
+                    }
                     d[k] = d[k + 1] = d[k + 2] = v; d[k + 3] = 255;
                 }
                 return { data: d };
@@ -112,14 +129,18 @@ function kamera(kareler) {
         __akis: {},
         __tarayici: { detect: async () => {
             const k = kareler[i++];
-            sonKare = k === true;
+            sahne = k === true ? 'etiket'
+                  : (k && k.s) ? k.s
+                  : 'masa';
             return (typeof k === 'string' && k) ? [{ rawValue: k }] : [];
         } },
         kaydet: (k) => islenen.push(k),
         goster: (tur, dur, kod, ek) => uyarilar.push({ tur, dur, ek }),
         bipOkunamadi: () => sesler.push('okunamadi'),
         document: { createElement: () => tuval },
-        $: () => ({ set textContent(v) { notlar.push(v); }, get textContent() { return ''; } }),
+        // videoWidth/Height olmadan icerikVar olcum yapmadan cikar
+        $: () => ({ videoWidth: 1280, videoHeight: 960,
+            set textContent(v) { notlar.push(v); }, get textContent() { return ''; } }),
         setTimeout: () => 0, console, String, Math, Date, Promise, Object, Array,
         Uint8ClampedArray
     };
@@ -269,7 +290,7 @@ function kamera(kareler) {
 
     /* Etiket tutuluyor ama çözülemiyor → uyarı */
     {
-        const k = kamera(Array(30).fill(true));
+        const k = kamera(Array(40).fill(ETIKET));
         await k.calistir();
         const u = k.uyarilar[0];
         ol('okunamayan etiket uyarı veriyor', k.uyarilar.length === 1 && u,
@@ -279,29 +300,51 @@ function kamera(kareler) {
         ol('okunamadı sesi çaldı', k.sesler.length === 1);
     }
 
-    /* Boş sahne: kamera boşta beklerken uyarı ÇALMAMALI */
+    /* Sahada yanlış alarm üreten üç sahne: hiçbiri uyarmamalı */
     {
-        const k = kamera(Array(60).fill(false));
+        const k = kamera(Array(80).fill(MASA));
         await k.calistir();
-        ol('boş sahnede uyarı çıkmıyor', k.uyarilar.length === 0,
+        ol('boş tezgâhta uyarı çıkmıyor', k.uyarilar.length === 0,
+            k.uyarilar.length + ' uyarı');
+    }
+    {
+        const k = kamera(Array(80).fill(KAGIT));
+        await k.calistir();
+        ol('beyaz kâğıt/ambalajda uyarı çıkmıyor', k.uyarilar.length === 0,
+            k.uyarilar.length + ' uyarı');
+    }
+    {
+        const k = kamera(Array(80).fill(KARANLIK));
+        await k.calistir();
+        ol('karanlıkta uyarı çıkmıyor', k.uyarilar.length === 0,
             k.uyarilar.length + ' uyarı');
     }
 
     /* Uyarı sonrası sessizlik penceresi: art arda çalmamalı */
     {
-        const k = kamera(Array(70).fill(true));
+        const k = kamera(Array(80).fill(ETIKET));
         await k.calistir();
         ol('uyarı art arda tekrarlamıyor', k.uyarilar.length === 1,
-            k.uyarilar.length + ' uyarı / 70 kare');
+            k.uyarilar.length + ' uyarı / 80 kare');
     }
 
-    /* Kod okunursa sayaç sıfırlanır — okuma sonrası hemen uyarı gelmemeli */
+    /* BAŞARILI okumadan hemen sonra uyarı gelmemeli — sahada "hem okuyor
+       hem okunamadı diyor" şikâyeti tam buydu: parça çekilirken kamera
+       tezgâhı görüyor, uyarı "YENİ KOD" yazısını eziyordu. */
     {
-        const k = kamera([].concat(Array(20).fill(true), ['KOD-X'], Array(20).fill(true)));
+        const k = kamera(['K1'].concat(Array(30).fill(ETIKET)));
         await k.calistir();
-        ol('okuma sayacı sıfırlıyor (okuma sonrası erken uyarı yok)',
+        ol('okumadan hemen sonra uyarı yok',
             k.islenen.length === 1 && k.uyarilar.length === 0,
             k.uyarilar.length + ' uyarı');
+    }
+
+    /* Ama okuma sonrası UZUN süre çözülemezse yine uyarmalı */
+    {
+        const k = kamera(['K1'].concat(Array(70).fill(ETIKET)));
+        await k.calistir();
+        ol('okuma sonrası uzun süre çözülemezse uyarıyor',
+            k.uyarilar.length === 1, k.uyarilar.length + ' uyarı');
     }
 
     console.log('\nD) sesli anons Türkçe');

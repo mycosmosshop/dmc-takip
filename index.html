@@ -724,39 +724,65 @@ $('#yenile').onclick = listele;
       cozemiyor; o durumda elle giris devrede kalir. ── */
 let akis = null, tarayici = null, sonKod = '', ayniUyari = 0;
 
-/* Etiket tutuluyor ama COZULEMIYOR mu?  BarcodeDetector cozemedigini bos
-   dizi olarak donduruyor; "etiket yok" ile "etiket okunamiyor" ayni
-   gorunuyor. Ayrimi kare KONTRASTINDAN yapiyoruz: duz/bos sahne (masa,
-   duvar) dusuk kontrastlidir, kameraya bir sey tutulunca yukselir.
-   Esik BILEREK cok dusuk — silik etiket bile duz zeminden yuksektir ve
-   asil yakalanmasi gereken durum odur. Sahada yanlis alarm gelirse
-   ICERIK_ESIK buyutulur, hic uyari cikmiyorsa kucultulur. */
-const ICERIK_ESIK = 16;        // gri standart sapma
-const OKUNAMADI_KARE = 22;     // ~3.5 sn (160 ms x 22)
+/* Etiket tutuluyor ama COZULEMIYOR mu?  BarcodeDetector cozemedigini
+   bos dizi olarak donduruyor; "etiket yok" ile "etiket okunamiyor" ayni
+   gorunuyor. Ayrimi kareye BAKARAK yapiyoruz.
+
+   Duz kontrast (varyans) YETMEDI: masa dokusu, zemin, golge ve dusuk isik
+   gurultusu de kontrast uretiyor, kamera bosa bakarken uyari calmaya
+   basliyordu. Simdi IKI kosul birden araniyor:
+     1) KESKIN GECIS — DMC hucreleri birkac pikselde bir siyah-beyaz
+        atlar; masa/duvar yumusak gecislidir.
+     2) IKI UCLU DAGILIM — etikette hem koyu hem acik piksel BOL olur;
+        beyaz kagit ya da golgeli masa tek uca yigilir ve gecemez.
+
+   Sahada ayar: uyari bos yere cikiyorsa GECIS_ORAN / UC_ORAN buyutulur,
+   gercekten okunamayan etikette hic cikmiyorsa kucultulur. */
+const GECIS_ESIK = 45;         // komsu piksel parlaklik farki
+const GECIS_ORAN = 0.09;       // kirpilan alanda keskin gecis orani
+const UC_ORAN = 0.12;          // koyu VE acik piksellerin her biri en az
+const OKUNAMADI_KARE = 28;     // ~4.5 sn (160 ms x 28)
 const OKUNAMADI_ARA = 60;      // uyari sonrasi ~10 sn sessizlik
+const OKUMA_SONRASI = 25;      // BASARILI okumadan sonra ~4 sn sessizlik
 let okunamadiSayac = 0, okunamadiBekle = 0, olcuKare = null;
+let sonOlcum = '';             // esik ayari icin: son olculen degerler
 
 function icerikVar(v) {
   try {
+    const G = 160, Y = 120;
     if (!olcuKare) {
       olcuKare = document.createElement('canvas');
-      olcuKare.width = 64; olcuKare.height = 48;
+      olcuKare.width = G; olcuKare.height = Y;
     }
+    const gw = v.videoWidth || 0, gh = v.videoHeight || 0;
+    if (!gw || !gh) return false;
     const c = olcuKare.getContext('2d', { willReadFrequently: true });
-    c.drawImage(v, 0, 0, 64, 48);
-    const p = c.getImageData(0, 0, 64, 48).data;
-    let t = 0, kare = 0, n = 0;
-    // ATLAMA YOK: her 4. piksel orneklenince duzenli desen (siyah-beyaz-
-    // siyah…) hep ayni faza denk gelip varyansi 0 gosteriyordu — en
-    // kontrastli etiket "bos sahne" sayiliyordu. 3072 piksel bedava.
-    for (let i = 0; i < p.length; i += 4) {
-      const g = (p[i] * 299 + p[i + 1] * 587 + p[i + 2] * 114) / 1000;
-      t += g; kare += g * g; n++;
+    // Merkezden kirp: etiket cerceveye ortalanir, kenardaki masa olcumu
+    // seyreltmesin — ve kucultme orani dustugu icin hucreler kaybolmasin.
+    const kw = gw * 0.5, kh = gh * 0.5;
+    c.drawImage(v, (gw - kw) / 2, (gh - kh) / 2, kw, kh, 0, 0, G, Y);
+    const p = c.getImageData(0, 0, G, Y).data;
+    let keskin = 0, gecis = 0, koyu = 0, acik = 0;
+    for (let y = 0; y < Y; y++) {
+      let onceki = -1;
+      for (let x = 0; x < G; x++) {
+        const i = (y * G + x) * 4;
+        const g = (p[i] * 299 + p[i + 1] * 587 + p[i + 2] * 114) / 1000;
+        if (g < 80) koyu++; else if (g > 175) acik++;
+        if (onceki >= 0) {
+          gecis++;
+          if (Math.abs(g - onceki) > GECIS_ESIK) keskin++;
+        }
+        onceki = g;
+      }
     }
-    if (!n) return true;
-    const ort = t / n;
-    return Math.sqrt(Math.max(0, kare / n - ort * ort)) > ICERIK_ESIK;
-  } catch (e) { return true; }   // olcemezsek uyariyi ENGELLEME
+    if (!gecis) return false;
+    // Her IKI uc de dolu olmali: tek uca yigilan sahne etiket degildir.
+    const uc = Math.min(koyu, acik) / (G * Y);
+    const gr = keskin / gecis;
+    sonOlcum = 'g:' + gr.toFixed(2) + ' u:' + uc.toFixed(2);
+    return gr > GECIS_ORAN && uc > UC_ORAN;
+  } catch (e) { return false; }   // olcemezsek UYARMA: bos yere calmasin
 }
 $('#kamera').onclick = async function () {
   if (akis) {
@@ -804,10 +830,15 @@ async function tara() {
         bipOkunamadi();
         okunamadiKaydet();          // listede ve Excel'de iz biraksin
         $('#kameraNot').textContent =
-          'Okunamadı — açıyı değiştirin, ışığı artırın ya da elle yazın.';
+          'Okunamadı — açıyı değiştirin, ışığı artırın ya da elle yazın.'
+          + (sonOlcum ? '  [' + sonOlcum + ']' : '');
       }
     } else {
-      okunamadiSayac = 0; okunamadiBekle = 0;
+      // Okumadan SONRA da uyari caliyordu: operator parcayi cekerken
+      // kamera masayi/eli goruyor, sayac isliyor ve "YENI KOD" yazisi
+      // "OKUNAMADI" ile eziliyordu. Basarili okuma kisa bir sessizlik
+      // penceresi aciyor.
+      okunamadiSayac = 0; okunamadiBekle = OKUMA_SONRASI;
       const kod = String(bulunan[0].rawValue || '').trim();
       // Kilit YALNIZCA farkli bir kod gorulunce acilir. Ayni etiket
       // kamerada ne kadar kalirsa kalsin, cekilip tekrar gosterilse bile
