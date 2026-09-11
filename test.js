@@ -524,6 +524,10 @@ function kamera(kareler) {
 
         ol('csv okunamayan etiketi OKUNAMADI diye yazıyor',
             csv.indexOf('OKUNAMADI') >= 0);
+        ol('paylaşılan CSV MIME tipinde charset=utf-8 var',
+            JS.indexOf("'text/csv;charset=utf-8'") > 0);
+        ol('indirilen .xls MIME tipinde de charset var',
+            /vnd\.ms-excel;charset=utf-8/.test(JS));
         ol('csv ayraç bildirimi ilk satırda (Excel TR tek hücreye basmasın)',
             csv.slice(1).startsWith('sep=;'), csv.slice(1, 12));
     }

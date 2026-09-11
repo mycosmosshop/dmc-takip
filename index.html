@@ -687,7 +687,11 @@ $('#paylas').onclick = async function () {
   try { k = await tumKayitlar(); }
   catch (e) { $('#listeNot').textContent = 'Alınamadı: ' + String(e.message || e); return; }
   if (!k.length) { $('#listeNot').textContent = 'Paylaşılacak kayıt yok.'; return; }
-  const dosya = new File([csvUret(k)], dosyaAdi(k.length), { type: 'text/csv' });
+  // charset SART: bildirilmeyince alici uygulama (Sheets, mail) varsayilan
+  // kod sayfasini kullaniyor ve BOM dahil her sey bozuluyordu ("ï»¿sep=",
+  // "MÃKERRER"). BOM tek basina yetmiyor, MIME'a oncelik veren okuyucu var.
+  const dosya = new File([csvUret(k)], dosyaAdi(k.length),
+                         { type: 'text/csv;charset=utf-8' });
   try {
     if (navigator.canShare && navigator.canShare({ files: [dosya] })) {
       await navigator.share({ files: [dosya], title: 'DMC kayıtları' });
