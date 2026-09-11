@@ -566,7 +566,11 @@ function csvUret(kayitlar) {
   const bas = ['Kod', 'Durum', 'Lokasyon', 'Okuyan', 'Tarih', 'Saat'];
   const satir = kayitlar.map(function (s) {
     const d = new Date(s.zaman);
-    return [s.kod, s.mukerrer ? 'MÜKERRER' : 'yeni', s.lokasyon || '', s.okuyan || '',
+    // Okunamayan etiket CSV'de "yeni" gorunuyordu: paylasilan dosyada
+    // iz birakmiyordu. XLS tarafiyla ayni durum adlari kullanilir.
+    const durum = s.kod === OKUNAMADI_KOD ? 'OKUNAMADI'
+                : s.mukerrer ? 'MÜKERRER' : 'yeni';
+    return [s.kod, durum, s.lokasyon || '', s.okuyan || '',
             d.toLocaleDateString('tr-TR'), d.toLocaleTimeString('tr-TR')]
       .map((h) => '"' + String(h).replace(/"/g, '""') + '"').join(';');
   });
@@ -603,8 +607,13 @@ function xlsUret(kayitlar) {
   }).join('');
   const mk = kayitlar.filter((s) => s.mukerrer).length;
   const om = kayitlar.filter((s) => s.kod === OKUNAMADI_KOD).length;
-  return '<html xmlns:x="urn:schemas-microsoft-com:office:excel">'
+  // BOM SART: Excel .xls HTML dosyasinda <meta charset> etiketini cogu
+  // zaman yok sayip sistem kod sayfasiyla aciyor ve Turkce harfler
+  // bozuluyordu. BOM'u goren Excel UTF-8'e gecer. http-equiv bicimi de
+  // yaziliyor — eski HTML ayristirici onu daha guvenilir taniyor.
+  return '\ufeff<html xmlns:x="urn:schemas-microsoft-com:office:excel">'
     + '<head><meta charset="utf-8">'
+    + '<meta http-equiv="Content-Type" content="text/html; charset=utf-8">'
     + '<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets>'
     + '<x:ExcelWorksheet><x:Name>DMC</x:Name><x:WorksheetOptions>'
     + '<x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet>'

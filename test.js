@@ -75,7 +75,7 @@ function ortam(sunucuYanit, sesler) {
         SpeechSynthesisUtterance: function (m) { this.text = m; }
     };
     g.window = g;
-    const api = new Function('__k', 'with(__k){' + JS + '\nreturn {kaydet, bilinen, anons, okunamadiKaydet, havuzYukle, xlsUret, listele};}')(
+    const api = new Function('__k', 'with(__k){' + JS + '\nreturn {kaydet, bilinen, anons, okunamadiKaydet, havuzYukle, xlsUret, csvUret, OKUNAMADI_KOD, listele};}')(
         new Proxy(g, { has: () => true, get: (o, p) => (p in o ? o[p] : undefined) }));
     return { api, gecen, yazilan, ekran, konusulan, liste, dom: el };
 }
@@ -479,6 +479,53 @@ function kamera(kareler) {
         ol('detektörsüz okunamayan etiket yine uyarıyor ve kaydediliyor',
             k.uyarilar.length >= 1 && k.kayitlar.length >= 1,
             k.uyarilar.length + ' uyarı · ' + k.kayitlar.length + ' kayıt');
+    }
+
+    /* ── G) Excel/CSV aktarimi: Turkce karakter ──
+     * Kirilan hal: .xls HTML dosyasinda <meta charset="utf-8"> vardi ama
+     * Excel bu etiketi cogu zaman YOK SAYIP sistem kod sayfasiyla aciyor;
+     * "MUKERRER" ve tedarikci adlari bozuk cikiyordu. BOM sart. */
+    console.log('\nG) Excel/CSV — Türkçe karakter');
+    {
+        const { api } = ortam(YAZDI);
+        const K = [
+            { kod: 'DMC-TR-1', mukerrer: false, lokasyon: 'ÇERKEZKÖY Üretim',
+              okuyan: 'Şükrü Öztürk', zaman: '2026-09-11T08:00:00Z' },
+            { kod: 'DMC-TR-1', mukerrer: true, lokasyon: 'ÇERKEZKÖY Üretim',
+              okuyan: 'Şükrü Öztürk', zaman: '2026-09-11T08:01:00Z' },
+            { kod: api.OKUNAMADI_KOD || '(okunamadı)', mukerrer: false,
+              lokasyon: 'İSTANBUL Sevkiyat', okuyan: 'Ayşe Gül',
+              zaman: '2026-09-11T08:02:00Z' },
+        ];
+        const xls = api.xlsUret(K);
+        const csv = api.csvUret(K);
+
+        ol('xls UTF-8 BOM ile başlıyor (Excel kod sayfasını kaçırmasın)',
+            xls.charCodeAt(0) === 0xFEFF,
+            'ilk kod: U+' + xls.charCodeAt(0).toString(16).toUpperCase());
+        ol('csv UTF-8 BOM ile başlıyor', csv.charCodeAt(0) === 0xFEFF);
+        ol('xls http-equiv charset de yazıyor',
+            /http-equiv="Content-Type"[^>]*charset=utf-8/i.test(xls));
+
+        const TR = ['ÇERKEZKÖY', 'Şükrü Öztürk', 'İSTANBUL', 'Ayşe Gül',
+                    'MÜKERRER'];
+        const eksikX = TR.filter((x) => xls.indexOf(x) < 0);
+        const eksikC = TR.filter((x) => csv.indexOf(x) < 0);
+        ol('xls Türkçe harfleri koruyor', !eksikX.length, eksikX.join(','));
+        ol('csv Türkçe harfleri koruyor', !eksikC.length, eksikC.join(','));
+
+        /* UTF-8'e cevrilince gercekten cok baytli mi (mojibake degil) */
+        const bayt = Buffer.from(xls, 'utf8');
+        ol('xls UTF-8 olarak kodlanabiliyor',
+            bayt.toString('utf8').indexOf('ÇERKEZKÖY') >= 0);
+        ol('BOM baytlari EF BB BF',
+            bayt[0] === 0xEF && bayt[1] === 0xBB && bayt[2] === 0xBF,
+            [bayt[0], bayt[1], bayt[2]].join(' '));
+
+        ol('csv okunamayan etiketi OKUNAMADI diye yazıyor',
+            csv.indexOf('OKUNAMADI') >= 0);
+        ol('csv ayraç bildirimi ilk satırda (Excel TR tek hücreye basmasın)',
+            csv.slice(1).startsWith('sep=;'), csv.slice(1, 12));
     }
 
     console.log('\n' + (hata ? hata + ' test BAŞARISIZ' : 'tüm testler geçti'));
