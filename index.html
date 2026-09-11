@@ -143,6 +143,9 @@
   </div>
 
   <div class="kart">
+    <div style="font-size:11px;color:var(--soluk);margin:0 0 6px;
+                text-transform:uppercase;letter-spacing:.04em"
+         id="panoBaslik">Bugün · tüm okuyucular</div>
     <div class="sayac">
       <div><b id="sT">0</b><span>toplam</span></div>
       <div><b id="sY">0</b><span>yeni</span></div>
@@ -493,6 +496,39 @@ async function arkaPlan(kod, lok, kisi, mukerrerTahmin) {
 }
 
 /* ── Liste ── */
+/* Pano BUGUNUN tum okumalarini gosterir — kim okursa okusun. Onceden
+   yalniz bu cihazin oturumu sayiliyordu: iki kisi ayni isi paylasirken
+   ayri sayilar goruyor, sayfa yenilenince sifirlaniyorlardi.
+   Yalniz count okunur, govde cekilmez. */
+async function sayacYenile() {
+  // Gun basi YEREL saate gore. UTC ile alinirsa aksam okumalari ertesi
+  // gune dusuyor (gun sayiminda bilinen tuzak).
+  const g = new Date(); g.setHours(0, 0, 0, 0);
+  const suz = '&zaman=gte.' + encodeURIComponent(g.toISOString());
+  async function say(ek) {
+    const r = await fetch(SB_URL + '/rest/v1/' + TABLO + '?select=id&limit=1'
+      + suz + ek, { headers: Object.assign({ Prefer: 'count=exact' }, BASLIK) });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const cr = r.headers.get('content-range') || '';
+    const s = cr.indexOf('/') > 0 ? parseInt(cr.split('/')[1], 10) : NaN;
+    return isNaN(s) ? 0 : s;
+  }
+  try {
+    const d = await Promise.all([
+      say(''),
+      say('&mukerrer=is.true'),
+      say('&kod=eq.' + encodeURIComponent(OKUNAMADI_KOD)),
+    ]);
+    // Okunamadi kaydi hep mukerrer=false yazilir, ucu ayrik.
+    sayac = { t: d[0], m: d[1], o: d[2], y: Math.max(0, d[0] - d[1] - d[2]) };
+    $('#sT').textContent = sayac.t; $('#sY').textContent = sayac.y;
+    $('#sM').textContent = sayac.m; $('#sO').textContent = sayac.o;
+  } catch (e) {
+    // Ag yoksa yerel sayac ekranda kalsin; yanlis sifir gostermeyelim.
+    $('#panoBaslik').textContent = 'Bugün · bağlantı yok, yalnız bu cihaz';
+  }
+}
+
 async function listele() {
   try {
     const r = await fetch(SB_URL + '/rest/v1/' + TABLO
@@ -522,6 +558,7 @@ async function listele() {
         + '</td><td style="white-space:nowrap">' + saat(s.zaman) + '</td></tr>';
     }).join('') : '<tr><td colspan="4" style="color:var(--soluk)">Henüz kayıt yok</td></tr>';
     secGuncelle();
+    sayacYenile();          // pano da tazelensin (baskasinin okumasi dahil)
   } catch (e) {
     durum(false, 'liste alınamadı: ' + String(e.message || e).slice(0, 60));
   }
@@ -672,9 +709,8 @@ async function sil(kosul, etiket) {
     }
     const silinen = await r.json();
     $('#listeNot').textContent = etiket + ': ' + silinen.length + ' kayıt silindi.';
-    sayac = { t: 0, y: 0, m: 0, o: 0 };
-    $('#sT').textContent = 0; $('#sY').textContent = 0; $('#sM').textContent = 0;
-    $('#sO').textContent = 0;
+    // Pano artik buluttan sayiliyor; elle sifirlamak yanlis gosterirdi
+    // (baska kullanicinin bugunku kayitlari duruyor olabilir).
     $('#hepsiSec').checked = false;
     sonuc.className = 'bos';
     sonuc.querySelector('.dur').textContent = 'Kod bekleniyor';
@@ -939,6 +975,15 @@ async function tara() {
   } catch (e) {}
   if (akis) setTimeout(tara, 160);   // gorur gormez islesin
 }
+
+/* Baskasi okuttugunda pano kendiliginden guncellensin. Sayfa gizliyken
+   (baska sekme / ekran kapali) istek atilmaz; geri donulunce hemen
+   tazelenir. */
+const TAZELE_MS = 20000;
+setInterval(function () { if (!document.hidden) listele(); }, TAZELE_MS);
+document.addEventListener('visibilitychange', function () {
+  if (!document.hidden) listele();
+});
 
 (async function () {
   durum(false, 'havuz yükleniyor…');

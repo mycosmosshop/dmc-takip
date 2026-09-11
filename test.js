@@ -75,7 +75,7 @@ function ortam(sunucuYanit, sesler) {
         SpeechSynthesisUtterance: function (m) { this.text = m; }
     };
     g.window = g;
-    const api = new Function('__k', 'with(__k){' + JS + '\nreturn {kaydet, bilinen, anons, okunamadiKaydet, havuzYukle, xlsUret, csvUret, OKUNAMADI_KOD, listele};}')(
+    const api = new Function('__k', 'with(__k){' + JS + '\nreturn {kaydet, bilinen, anons, okunamadiKaydet, havuzYukle, xlsUret, csvUret, OKUNAMADI_KOD, listele, sayacYenile, get sayac() { return sayac; }};}')(
         new Proxy(g, { has: () => true, get: (o, p) => (p in o ? o[p] : undefined) }));
     return { api, gecen, yazilan, ekran, konusulan, liste, dom: el };
 }
@@ -526,6 +526,56 @@ function kamera(kareler) {
             csv.indexOf('OKUNAMADI') >= 0);
         ol('csv ayraç bildirimi ilk satırda (Excel TR tek hücreye basmasın)',
             csv.slice(1).startsWith('sep=;'), csv.slice(1, 12));
+    }
+
+    /* ── H) Pano: BASKASININ okumasi da sayilsin ──
+     * Kirilan hal: sayac{t,y,m,o} yalniz bu cihazin oturumunda elle
+     * artiyordu. Iki kisi ayni isi paylasirken ayri sayilar goruyor,
+     * sayfa yenilenince sifirlaniyordu. */
+    console.log('\nH) Pano — başkasının okuması da sayılıyor');
+    {
+        /* Sahte Supabase: count=exact isteklerine content-range doner.
+           Bu cihaz HIC okuma yapmadi; sayilar tamamen buluttan gelmeli. */
+        const sorulan = [];
+        const sayim = { hepsi: 37, mukerrer: 9, okunamadi: 4 };
+        const sahte = async (u, o) => {
+            sorulan.push(u);
+            const say = /mukerrer=is\.true/.test(u) ? sayim.mukerrer
+                      : /kod=eq\./.test(u) ? sayim.okunamadi : sayim.hepsi;
+            return { ok: true, status: 200,
+                     headers: { get: (h) => h.toLowerCase() === 'content-range'
+                                ? '0-0/' + say : null },
+                     json: async () => [], text: async () => '' };
+        };
+        const { api } = ortam(sahte);
+        await bekle(5); sorulan.length = 0;  // kurulum istekleri sayilmasin
+        await api.sayacYenile();
+        const s = api.sayac;
+        ol('toplam buluttan geliyor', s.t === 37, s.t);
+        ol('mükerrer buluttan geliyor', s.m === 9, s.m);
+        ol('okunamadı buluttan geliyor', s.o === 4, s.o);
+        ol('yeni = toplam − mükerrer − okunamadı', s.y === 24, s.y);
+        ol('üç sorgu da BUGÜN ile sınırlı (havuzun tamamı değil)',
+            sorulan.length === 3 && sorulan.every((u) => /zaman=gte\./.test(u)),
+            sorulan.length + ' sorgu');
+        ol('gövde çekilmiyor, yalnız sayım (limit=1)',
+            sorulan.every((u) => /limit=1/.test(u) && /select=id/.test(u)));
+        /* Gun basi YEREL olmali: UTC alinirsa aksam okumalari kayiyor */
+        const m = (sorulan[0].match(/zaman=gte\.([^&]+)/) || [])[1];
+        const bas = new Date(decodeURIComponent(m || ''));
+        const bugun = new Date(); bugun.setHours(0, 0, 0, 0);
+        ol('gün başı yerel saate göre (UTC kayması yok)',
+            Math.abs(bas.getTime() - bugun.getTime()) < 1000,
+            decodeURIComponent(m || '(yok)'));
+    }
+    {
+        /* Ag yoksa pano sifirlanmamali: yanlis "0 okuma" gostermesin */
+        const patlak = async () => { throw new Error('ağ yok'); };
+        const { api } = ortam(patlak);
+        const once = JSON.stringify(api.sayac);
+        await api.sayacYenile();
+        ol('bağlantı yokken pano sıfırlanmıyor',
+            JSON.stringify(api.sayac) === once, api.sayac);
     }
 
     console.log('\n' + (hata ? hata + ' test BAŞARISIZ' : 'tüm testler geçti'));
