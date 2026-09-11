@@ -439,6 +439,48 @@ function kamera(kareler) {
             (x.match(/Toplam[^<]*/) || [])[0]);
     }
 
+    /* ── F) iPhone: BarcodeDetector YOK ──
+     * Kirilan hal: kod "Bu tarayici kodu cozemiyor" deyip DONUYORDU;
+     * getUserMedia hic cagrilmiyor, ekran acilmiyordu. ZXing DataMatrix'i
+     * kendi cozdugu icin detektorsuz de calismali. */
+    console.log('\nF) iPhone — BarcodeDetector olmadan');
+    {
+        const acKaynak = JS.slice(JS.indexOf('if (!navigator.mediaDevices'),
+                                  JS.indexOf('async function tara()'));
+        ol('detektör yokluğunda kameradan ÖNCE return edilmiyor',
+            acKaynak.indexOf("'BarcodeDetector' in window") >= 0
+            && !/BarcodeDetector' in window\)\)[\s\S]{0,200}?return;/.test(acKaynak));
+        ol('BarcodeDetector koşullu kuruluyor, kamera yine açılıyor',
+            acKaynak.lastIndexOf('getUserMedia')
+            > acKaynak.indexOf("'BarcodeDetector' in window"));
+        ol('mediaDevices yoksa https uyarısı veriliyor',
+            /https:\/\//.test(acKaynak) && /mediaDevices/.test(acKaynak));
+        ol('kamera izni reddinde net mesaj',
+            /NotAllowed|Permission/.test(acKaynak));
+        ol('tara() detektörsüz çalışıyor',
+            /const bulunan = tarayici \? await tarayici\.detect/.test(JS));
+    }
+    {
+        /* Her etiket ZX_ADIM (2) kare kadrajda; arada kadraj bosaliyor */
+        const k = kamera(['DMC-IP-1', 'DMC-IP-1', BOS, BOS, BOS, BOS,
+                          BOS, BOS, 'DMC-IP-2', 'DMC-IP-2'], true);
+        await k.calistir();
+        ol('detektörsüz (iPhone) ZXing ile okuyor',
+            k.islenen.length === 2, k.islenen.join(',') || '(hiç okumadı)');
+        ol('aynı etiket tek kez sayıldı',
+            k.islenen[0] === 'DMC-IP-1' && k.islenen[1] === 'DMC-IP-2',
+            k.islenen.join(','));
+    }
+    {
+        const bozuk = [];
+        for (let z = 0; z < 14; z++) bozuk.push(BOZUK);
+        const k = kamera(bozuk, true);
+        await k.calistir();
+        ol('detektörsüz okunamayan etiket yine uyarıyor ve kaydediliyor',
+            k.uyarilar.length >= 1 && k.kayitlar.length >= 1,
+            k.uyarilar.length + ' uyarı · ' + k.kayitlar.length + ' kayıt');
+    }
+
     console.log('\n' + (hata ? hata + ' test BAŞARISIZ' : 'tüm testler geçti'));
     process.exit(hata ? 1 : 0);
 })();

@@ -802,39 +802,74 @@ $('#kamera').onclick = async function () {
     this.textContent = '📷 Kamerayı başlat';
     return;
   }
-  if (!('BarcodeDetector' in window)) {
-    $('#kameraNot').textContent =
-      'Bu tarayıcı kamerayla kod çözemiyor (iPhone/Safari). Kodu elle yazın ya da el terminali kullanın.';
+  // iOS'ta getUserMedia YALNIZ https:// adreste tanimlidir. http
+  // uzerinden acilinca mediaDevices undefined olup anlamsiz bir
+  // TypeError veriyordu — sebebi yazsin.
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    $('#kameraNot').textContent = (location.protocol === 'https:')
+      ? 'Bu tarayıcı kamerayı açamıyor — Safari/Chrome güncel mi?'
+      : 'Kamera yalnız https:// adreste açılır (şu an ' + location.protocol
+        + '//). Sayfayı https adresinden açın.';
     return;
   }
   try {
-    const turler = await BarcodeDetector.getSupportedFormats();
-    const istenen = ['data_matrix', 'qr_code', 'code_128', 'code_39'].filter((t) => turler.includes(t));
-    tarayici = new BarcodeDetector({ formats: istenen.length ? istenen : turler });
+    // BarcodeDetector Chrome/Android'de var, iOS Safari'de YOK. Onceden
+    // yoksa buradan DONULUYORDU ve iPhone'da kamera hic acilmiyordu.
+    // ZXing DataMatrix'i kendi cozuyor: detektor yoksa yalniz onunla
+    // devam edilir.
+    tarayici = null;
+    let istenen = [];
+    if ('BarcodeDetector' in window) {
+      try {
+        const turler = await BarcodeDetector.getSupportedFormats();
+        istenen = ['data_matrix', 'qr_code', 'code_128', 'code_39']
+          .filter((t) => turler.includes(t));
+        tarayici = new BarcodeDetector(
+          { formats: istenen.length ? istenen : turler });
+      } catch (e) { tarayici = null; }   // API var ama kurulamadi
+    }
     akis = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: 'environment', width: { ideal: 1280 } } });
     const v = $('#video');
-    v.srcObject = akis; v.style.display = 'block'; await v.play();
+    v.srcObject = akis; v.style.display = 'block';
+    // iOS'ta play() reddedilebilir; kamera goruntusu yine de akar.
+    try { await v.play(); } catch (e) {}
     this.textContent = '⏹ Kamerayı durdur';
     sonKod = ''; ayniUyari = 0;     // yeniden baslatma kilidi sifirlar
     okunamiyorSayac = 0; zxKare = 0; uyariAn = 0; bosOlcum = 0;
-    $('#kameraNot').textContent = 'Etiketi çerçeveye tutun · çözülen: ' + istenen.join(', ');
+    $('#kameraNot').textContent = tarayici
+      ? 'Etiketi çerçeveye tutun · çözülen: ' + istenen.join(', ')
+      : 'Çözücü yükleniyor…';
     tara();
     // Cozucu tembel yukleniyor: kamera acilmadan 200 KB indirilmesin.
-    // Yuklenemezse sessizce yanlis calismasin — ekranda yazsin.
+    // Detektor YOKSA (iPhone) tek cozucu budur — yuklenemezse kamera
+    // acik kalip hicbir sey okunmaz, bunu net soyle.
     zxYukle().then((ok) => {
-      if (!ok) $('#kameraNot').textContent =
-        'Bağlantı yok: okunamayan etiket uyarısı devre dışı (okuma çalışıyor).';
+      if (ok) {
+        if (!tarayici) $('#kameraNot').textContent =
+          'Etiketi çerçeveye tutun · çözülen: DataMatrix, QR';
+      } else if (tarayici) {
+        $('#kameraNot').textContent =
+          'Bağlantı yok: okunamayan etiket uyarısı devre dışı (okuma çalışıyor).';
+      } else {
+        $('#kameraNot').textContent =
+          'Çözücü indirilemedi (bağlantı yok). Bir kez çevrimiçi açın ya da '
+          + 'kodu elle yazın.';
+      }
     });
   } catch (e) {
-    $('#kameraNot').textContent = 'Kamera açılamadı: ' + String(e.message || e).slice(0, 80);
+    const m = String(e.name || e.message || e);
+    $('#kameraNot').textContent = /NotAllowed|Permission/i.test(m)
+      ? 'Kamera izni verilmedi — Ayarlar › Safari › Kamera: İzin ver.'
+      : 'Kamera açılamadı: ' + String(e.message || e).slice(0, 80);
   }
 };
 
 async function tara() {
-  if (!akis || !tarayici) return;
+  if (!akis) return;
   try {
-    const bulunan = await tarayici.detect($('#video'));
+    // Detektor yoksa (iPhone) dogrudan ZXing dalina dusulur.
+    const bulunan = tarayici ? await tarayici.detect($('#video')) : [];
     if (!bulunan.length) {
       // BarcodeDetector cozemedi. ZXing hem ikinci bir sans verir hem de
       // "etiket yok" / "etiket bozuk" ayrimini yapar.
